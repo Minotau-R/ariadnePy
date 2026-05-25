@@ -50,7 +50,7 @@ g = ariadnepy.ariadne(versions={"GO": "2026-01-23", "KEGG": "latest"})
 
 ---
 
-## Supported resources
+<!-- ## Supported resources
 
 | Resource | Description |
 |---|---|
@@ -66,7 +66,7 @@ g = ariadnepy.ariadne(versions={"GO": "2026-01-23", "KEGG": "latest"})
 | ChocoPhlAn | MetaPhlAn gene families |
 | MSigDB | Molecular Signatures Database |
 
----
+--- -->
 
 ## Project structure
 
@@ -99,4 +99,3 @@ pytest
 
 ## License
 
-Artistic License 2.0 — same as the R package ariadne.
