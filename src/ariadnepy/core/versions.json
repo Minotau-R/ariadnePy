@@ -1,5 +1,5 @@
 {
-  "_comment": "Fallback copy of ariadne's versionMetadata. The live source of truth is ariadne/R/sysdata.rda — update this file whenever sysdata.rda changes.",
+  "_comment": "Offline fallback. At runtime ariadnePy fetches sysdata.rda directly from https://raw.githubusercontent.com/Minotau-R/ariadne/main/R/sysdata.rda. This file is only used when that fetch fails (no network).",
   "static": [
     {"source": "BugSigDB",   "version": "v1.3.1",      "key": "19740674",                                              "graph": 19397292, "default": true},
     {"source": "BugSigDB",   "version": "v1.3.0",      "key": "15272273",                                              "graph": 19397292, "default": false},

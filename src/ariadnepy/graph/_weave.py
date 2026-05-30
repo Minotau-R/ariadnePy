@@ -526,34 +526,84 @@ def _fetch_edge(
     return df
 
 
-# ── Linkmap chaining (replaces R's MultiFactor + weave) ──────────────────────
+# ── Linkmap chaining (mirrors R's MultiFactor sparse crossproduct) ────────────
+
+def _linkmap_to_sparse(
+    df: pd.DataFrame,
+) -> "Tuple[Any, List, List]":
+    """Convert a 2-col linkmap DataFrame to a binary CSR sparse matrix.
+
+    Returns (matrix, row_labels, col_labels).
+    """
+    row_cat = pd.Categorical(df.iloc[:, 0])
+    col_cat = pd.Categorical(df.iloc[:, 1])
+    mat = sp.csr_matrix(
+        (
+            np.ones(len(df), dtype=np.float32),
+            (row_cat.codes, col_cat.codes),
+        ),
+        shape=(len(row_cat.categories), len(col_cat.categories)),
+    )
+    return mat, list(row_cat.categories), list(col_cat.categories)
+
 
 def _weave_linkmaps(
     linkmaps: Dict[str, pd.DataFrame], from_: str, to: str
 ) -> pd.DataFrame:
     """Chain a dict of 2-col DataFrames into a single from → to linkmap.
 
+    When scipy is available, uses sparse matrix crossproducts (mirrors R's
+    MultiFactor approach) — much more memory-efficient for large linkmaps.
+    Falls back to pandas merge when scipy is not installed.
+
     Dict insertion order is preserved (Python 3.7+). For stratified input the
-    ``"init"`` linkmap is stored first and acts as the first merge step, so it
-    must be included — not skipped.
+    ``"init"`` linkmap is stored first and acts as the first merge step.
     """
     frames = list(linkmaps.values())
     if not frames:
         raise AriadneError("No linkmaps to weave.")
 
-    result = frames[0].copy()
-    for frame in frames[1:]:
-        shared = list(set(result.columns) & set(frame.columns))
-        if not shared:
-            raise AriadneError("Cannot chain linkmaps: no shared column found.")
-        result = result.merge(frame, on=shared[0], how="inner")
+    if _HAS_SCIPY:
+        mat, row_labels, col_labels = _linkmap_to_sparse(frames[0])
+
+        for frame in frames[1:]:
+            next_mat, next_row, next_col = _linkmap_to_sparse(frame)
+
+            # Align shared dimension: current col_labels ↔ next row_labels
+            shared = sorted(set(col_labels) & set(next_row))
+            if not shared:
+                raise AriadneError("Cannot chain linkmaps: no shared features found.")
+
+            col_idx = {c: i for i, c in enumerate(col_labels)}
+            row_idx = {r: i for i, r in enumerate(next_row)}
+            c_sel = [col_idx[s] for s in shared]
+            r_sel = [row_idx[s] for s in shared]
+
+            mat = mat[:, c_sel] @ next_mat[r_sel, :]
+            col_labels = next_col
+
+        # Non-zero entries in the product = valid origin → target mappings
+        rows, cols = mat.nonzero()
+        result = pd.DataFrame(
+            {from_: [row_labels[r] for r in rows], to: [col_labels[c] for c in cols]}
+        ).reset_index(drop=True)
+
+    else:
+        # Fallback: pandas merge (correct but less memory-efficient)
+        result = frames[0].copy()
+        for frame in frames[1:]:
+            shared = list(set(result.columns) & set(frame.columns))
+            if not shared:
+                raise AriadneError("Cannot chain linkmaps: no shared column found.")
+            result = result.merge(frame, on=shared[0], how="inner")
+        result = result[[from_, to]].drop_duplicates().reset_index(drop=True)
 
     if from_ not in result.columns or to not in result.columns:
         raise AriadneError(
             f"Expected columns {from_!r} and {to!r} in weaved result."
         )
 
-    return result[[from_, to]].drop_duplicates().reset_index(drop=True)
+    return result
 
 
 # ── Complex module parsing and coverage math ──────────────────────────────────
