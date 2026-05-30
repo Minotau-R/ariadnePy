@@ -217,11 +217,18 @@ def link_names(
     if ids is not None and names is not None:
         raise AriadneError("Specify only 'ids' or 'names', not both.")
 
-    node_attrs = dict(graph.nodes(data=True))
-    if x not in node_attrs:
-        raise AriadneError(f"Node {x!r} not found in graph.")
-
-    node_row = pd.Series({"name": x, **node_attrs[x]})
+    import igraph as ig
+    if isinstance(graph, ig.Graph):
+        node_names = graph.vs["name"]
+        if x not in node_names:
+            raise AriadneError(f"Node {x!r} not found in graph.")
+        v = graph.vs.find(name=x)
+        node_row = pd.Series({"name": x, **{a: v[a] for a in graph.vertex_attributes() if a != "name"}})
+    else:
+        node_attrs = dict(graph.nodes(data=True))
+        if x not in node_attrs:
+            raise AriadneError(f"Node {x!r} not found in graph.")
+        node_row = pd.Series({"name": x, **node_attrs[x]})
 
     name_links = _fetch_node_names(node_row, list(ids) if ids is not None else None)
     if name_links is None:

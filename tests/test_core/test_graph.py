@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import networkx as nx
+import igraph as ig
 import pandas as pd
 import pytest
 
@@ -16,13 +16,19 @@ from ariadnepy.exceptions import AriadneError
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_graph(nodes=("ko", "ec")) -> nx.MultiDiGraph:
-    """Build a minimal synthetic MultiDiGraph like ariadne() returns."""
-    g = nx.MultiDiGraph()
+def _make_graph(nodes=("ko", "ec")) -> ig.Graph:
+    """Build a minimal synthetic ig.Graph like ariadne() returns."""
+    g = ig.Graph(directed=True)
     for n in nodes:
-        g.add_node(n, name=n)
+        g.add_vertex(name=n)
     # Don't include 'source' in attrs — _combine_graphs adds it separately
-    g.add_edge(nodes[0], nodes[1], url="", from_=nodes[0], to=nodes[1])
+    g.add_edge(
+        g.vs.find(name=nodes[0]).index,
+        g.vs.find(name=nodes[1]).index,
+        url="",
+        from_=nodes[0],
+        to=nodes[1],
+    )
     return g
 
 
@@ -42,7 +48,7 @@ def test_ariadne_returns_multidigraph():
          patch("ariadnepy.core._graph.insert_version"):
         from ariadnepy.core._graph import ariadne
         g = ariadne()
-    assert isinstance(g, nx.MultiDiGraph)
+    assert isinstance(g, ig.Graph)
 
 
 def test_ariadne_graph_has_nodes():
@@ -53,7 +59,7 @@ def test_ariadne_graph_has_nodes():
          patch("ariadnepy.core._graph.insert_version"):
         from ariadnepy.core._graph import ariadne
         g = ariadne()
-    assert g.number_of_nodes() > 0
+    assert g.vcount() > 0
 
 
 def test_ariadne_graph_has_edges():
@@ -64,7 +70,7 @@ def test_ariadne_graph_has_edges():
          patch("ariadnepy.core._graph.insert_version"):
         from ariadnepy.core._graph import ariadne
         g = ariadne()
-    assert g.number_of_edges() > 0
+    assert g.ecount() > 0
 
 
 def test_ariadne_stores_versions():
@@ -75,8 +81,8 @@ def test_ariadne_stores_versions():
          patch("ariadnepy.core._graph.insert_version"):
         from ariadnepy.core._graph import ariadne
         g = ariadne()
-    assert "versions" in g.graph
-    assert g.graph["versions"]["KEGG"] == "latest"
+    assert "versions" in g.attributes()
+    assert g["versions"]["KEGG"] == "latest"
 
 
 def test_ariadne_edges_have_source_attribute():
@@ -87,8 +93,7 @@ def test_ariadne_edges_have_source_attribute():
          patch("ariadnepy.core._graph.insert_version"):
         from ariadnepy.core._graph import ariadne
         g = ariadne()
-    for _, _, data in g.edges(data=True):
-        assert "source" in data
+    assert "source" in g.edge_attributes()
 
 
 def test_ariadne_merges_multiple_sources():
@@ -114,7 +119,7 @@ def test_ariadne_merges_multiple_sources():
          patch("ariadnepy.core._graph.insert_version"):
         from ariadnepy.core._graph import ariadne
         g = ariadne()
-    assert g.number_of_nodes() >= 3  # ko, ec, uniref90
+    assert g.vcount() >= 3  # ko, ec, uniref90
 
 
 def test_ariadne_no_resources_raises():
@@ -133,15 +138,17 @@ def test_combine_graphs_merges_nodes():
     g1 = _make_graph(("ko", "ec"))
     g2 = _make_graph(("ec", "pathway"))
     combined = _combine_graphs([("KEGG", g1), ("KEGG", g2)])
-    assert "ko" in combined.nodes
-    assert "pathway" in combined.nodes
+    node_names = combined.vs["name"]
+    assert "ko" in node_names
+    assert "pathway" in node_names
 
 
 def test_combine_graphs_shared_node_attrs_updated():
     from ariadnepy.core._graph import _combine_graphs
-    g1 = nx.MultiDiGraph()
-    g1.add_node("ko", name="ko", extra="first")
-    g2 = nx.MultiDiGraph()
-    g2.add_node("ko", name="ko", extra="second")
+    g1 = ig.Graph(directed=True)
+    g1.add_vertex(name="ko", extra="first")
+    g2 = ig.Graph(directed=True)
+    g2.add_vertex(name="ko", extra="second")
     combined = _combine_graphs([("A", g1), ("B", g2)])
-    assert combined.nodes["ko"]["extra"] == "second"
+    ko_v = combined.vs.find(name="ko")
+    assert ko_v["extra"] == "second"

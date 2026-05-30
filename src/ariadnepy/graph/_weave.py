@@ -4,7 +4,6 @@ import re
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import igraph as ig
-import networkx as nx
 import pandas as pd
 
 from ariadnepy.exceptions import AriadneError
@@ -33,21 +32,30 @@ def _parse_by(by: str) -> Tuple[str, str]:
 # ── Graph introspection helpers ───────────────────────────────────────────────
 
 def _get_graph_dataframes(
-    graph: nx.MultiDiGraph,
+    graph: ig.Graph,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (node_df, edge_df) extracted from the NetworkX graph."""
-    node_df = pd.DataFrame(
-        [{"name": n, **attrs} for n, attrs in graph.nodes(data=True)]
-    )
-    if node_df.empty:
-        node_df = pd.DataFrame(columns=["name"])
+    """Return (node_df, edge_df) extracted from the igraph Graph."""
+    v_attrs = graph.vertex_attributes()
+    node_rows = []
+    for v in graph.vs:
+        row: Dict[str, object] = {"name": v["name"]}
+        for a in v_attrs:
+            if a != "name":
+                row[a] = v[a]
+        node_rows.append(row)
+    node_df = pd.DataFrame(node_rows) if node_rows else pd.DataFrame(columns=["name"])
 
+    e_attrs = graph.edge_attributes()
     edge_rows = []
-    for u, v, attrs in graph.edges(data=True):
-        edge_rows.append({"from": u, "to": v, **attrs})
-    edge_df = pd.DataFrame(edge_rows)
-    if edge_df.empty:
-        edge_df = pd.DataFrame(columns=["from", "to"])
+    for e in graph.es:
+        row = {
+            "from": graph.vs[e.source]["name"],
+            "to": graph.vs[e.target]["name"],
+        }
+        for a in e_attrs:
+            row[a] = e[a]
+        edge_rows.append(row)
+    edge_df = pd.DataFrame(edge_rows) if edge_rows else pd.DataFrame(columns=["from", "to"])
 
     return node_df, edge_df
 
@@ -79,33 +87,10 @@ def _generic2specific(
     return result
 
 
-# ── igraph conversion ────────────────────────────────────────────────────────
-
-def _nx_to_igraph(nx_graph: nx.Graph) -> ig.Graph:
-    """Convert a NetworkX MultiDiGraph to a directed igraph Graph.
-
-    Parallel edges are deduplicated — for unweighted hop-count shortest paths
-    they are redundant. Vertex names are stored in the 'name' attribute so
-    results can be mapped back to string node identifiers.
-    """
-    nodes = list(nx_graph.nodes())
-    node_idx = {n: i for i, n in enumerate(nodes)}
-    seen_edges: set = set()
-    edges = []
-    for u, v in nx_graph.edges():
-        e = (node_idx[u], node_idx[v])
-        if e not in seen_edges:
-            seen_edges.add(e)
-            edges.append(e)
-    g = ig.Graph(n=len(nodes), edges=edges, directed=True)
-    g.vs["name"] = nodes
-    return g
-
-
 # ── Path finding ──────────────────────────────────────────────────────────────
 
 def _draw_path(
-    graph: nx.MultiDiGraph,
+    graph: ig.Graph,
     from_: str,
     to: str,
     k: int,
@@ -124,22 +109,24 @@ def _draw_path(
 
     if set(include) & set(exclude):
         raise AriadneError("'include' and 'exclude' cannot overlap.")
-    if from_ not in graph:
+
+    node_names = set(graph.vs["name"])
+    if from_ not in node_names:
         raise AriadneError(f"Source node {from_!r} not found in graph.")
-    if to not in graph:
+    if to not in node_names:
         raise AriadneError(f"Target node {to!r} not found in graph.")
 
-    work_graph = graph
+    # Filter by resource name if requested
     if res_name is not None:
-        kept_edges = [
-            (u, v, ek)
-            for u, v, ek, d in graph.edges(keys=True, data=True)
-            if d.get("source") in res_name
+        edge_indices = [
+            e.index for e in graph.es
+            if "source" in graph.edge_attributes() and e["source"] in res_name
         ]
-        work_graph = graph.edge_subgraph(kept_edges).copy()
+        work_graph = graph.subgraph_edges(edge_indices, delete_vertices=False)
+    else:
+        work_graph = graph
 
-    ig_graph = _nx_to_igraph(work_graph)
-    node_to_idx = {v["name"]: v.index for v in ig_graph.vs}
+    node_to_idx = {v["name"]: v.index for v in work_graph.vs}
 
     if from_ not in node_to_idx:
         raise AriadneError(f"Source node {from_!r} not found in filtered graph.")
@@ -155,7 +142,7 @@ def _draw_path(
 
     while attempt < max_attempts and len(kept_paths) < k:
         try:
-            paths_idx = ig_graph.get_k_shortest_paths(
+            paths_idx = work_graph.get_k_shortest_paths(
                 from_idx, to=to_idx, k=candidate, mode="all", output="vpath"
             )
         except Exception:
@@ -165,7 +152,7 @@ def _draw_path(
             raise AriadneError(f"No path found between {from_!r} and {to!r}.")
 
         all_paths = [
-            [ig_graph.vs[i]["name"] for i in path] for path in paths_idx
+            [work_graph.vs[i]["name"] for i in path] for path in paths_idx
         ]
 
         kept_paths = [
@@ -173,7 +160,6 @@ def _draw_path(
             if all(n in p for n in include) and not any(n in p for n in exclude)
         ]
 
-        # igraph returned fewer paths than requested — no more paths exist
         if len(paths_idx) < candidate:
             break
 
@@ -186,28 +172,29 @@ def _draw_path(
         raise AriadneError("'k' is greater than the number of possible paths.")
 
     path_nodes = kept_paths[k - 1]
+    e_attrs = work_graph.edge_attributes()
 
     rows = []
     for i in range(len(path_nodes) - 1):
         u, v = path_nodes[i], path_nodes[i + 1]
-        edge_data: dict = {}
-        if work_graph.has_edge(u, v):
-            edge_data = next(iter(work_graph[u][v].values()))
-        elif work_graph.has_edge(v, u):
-            edge_data = next(iter(work_graph[v][u].values()))
-        rows.append({"from": u, "to": v, "source": edge_data.get("source", "")})
+        u_idx = node_to_idx[u]
+        v_idx = node_to_idx[v]
+        # Try forward then reverse (mode="all" means undirected path-finding)
+        eid = work_graph.get_eid(u_idx, v_idx, directed=False, error=False)
+        source_val = work_graph.es[eid]["source"] if eid != -1 and "source" in e_attrs else ""
+        rows.append({"from": u, "to": v, "source": source_val})
 
     return pd.DataFrame(rows)
 
 
 def _add_edge_metadata(
-    path_df: pd.DataFrame, graph: nx.MultiDiGraph, internal: bool
+    path_df: pd.DataFrame, graph: ig.Graph, internal: bool
 ) -> pd.DataFrame:
     """Enrich path_df with url, version, and (if internal) spec column names."""
     path_df = path_df.copy()
     node_df, edge_df = _get_graph_dataframes(graph)
 
-    versions = graph.graph.get("versions", {})
+    versions = graph["versions"] if "versions" in graph.attributes() else {}
     path_df["version"] = path_df["source"].map(versions)
 
     graph_keys = [_get_edge_key(r["from"], r["to"]) for _, r in edge_df.iterrows()]
@@ -766,7 +753,7 @@ def _map_complex_modules(
 # ── Internal orchestrator ─────────────────────────────────────────────────────
 
 def _build_path_mf(
-    graph: nx.MultiDiGraph,
+    graph: ig.Graph,
     from_: str,
     to: str,
     k: int,
@@ -826,7 +813,7 @@ def _build_path_mf(
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def weave_path(
-    graph: nx.MultiDiGraph,
+    graph: ig.Graph,
     by: str,
     k: int = 1,
     include: Optional[List[str]] = None,
@@ -905,7 +892,7 @@ def weave_path(
 
 
 def weave_complex(
-    graph: nx.MultiDiGraph,
+    graph: ig.Graph,
     by: str,
     k: int = 1,
     include: Optional[List[str]] = None,
@@ -1018,7 +1005,7 @@ def weave_complex(
 
 
 def draw_path(
-    graph: nx.MultiDiGraph,
+    graph: ig.Graph,
     by: str,
     k: int = 1,
     include: Optional[List[str]] = None,
@@ -1058,7 +1045,7 @@ def draw_path(
 
 
 def search_path(
-    graph: nx.MultiDiGraph,
+    graph: ig.Graph,
     by: str,
     k: int = 1,
     include: Optional[List[str]] = None,

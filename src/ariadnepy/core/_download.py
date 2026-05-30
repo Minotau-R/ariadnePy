@@ -3,9 +3,8 @@ from __future__ import annotations
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Optional
 
-import networkx as nx
+import igraph as ig
 
 from ariadnepy.exceptions import AriadneDownloadError, AriadneParseError
 
@@ -49,24 +48,31 @@ def download_gml(url: str, cache_dir: Path) -> Path:
         raise AriadneDownloadError(f"Failed to download GML: {exc}") from exc
 
 
-def read_gml(path: Path) -> nx.MultiDiGraph:
-    """Parse a GML file into a NetworkX MultiDiGraph."""
+def read_gml(path: Path) -> ig.Graph:
+    """Parse a GML file into a directed igraph Graph."""
     if not path.exists():
         raise AriadneDownloadError(f"GML file not found: {path}")
     try:
-        return nx.MultiDiGraph(nx.read_gml(str(path), label="name"))
+        g = ig.Graph.Read_GML(str(path))
+        if not g.is_directed():
+            g = g.as_directed()
+        return g
+    except (AriadneDownloadError, AriadneParseError):
+        raise
     except Exception as exc:
         raise AriadneParseError(f"Cannot parse GML file {path}: {exc}") from exc
 
 
-def insert_version(graph: nx.MultiDiGraph, key: str) -> None:
-    """Replace '{version}' placeholders in all node and edge attributes in-place."""
-    for node, attrs in graph.nodes(data=True):
-        for name, value in list(attrs.items()):
-            if isinstance(value, str) and "{version}" in value:
-                graph.nodes[node][name] = value.replace("{version}", key)
+def insert_version(graph: ig.Graph, key: str) -> None:
+    """Replace '{version}' placeholders in all vertex and edge attributes in-place."""
+    for v in graph.vs:
+        for attr in graph.vertex_attributes():
+            val = v[attr]
+            if isinstance(val, str) and "{version}" in val:
+                v[attr] = val.replace("{version}", key)
 
-    for u, v, attrs in graph.edges(data=True):
-        for name, value in list(attrs.items()):
-            if isinstance(value, str) and "{version}" in value:
-                attrs[name] = value.replace("{version}", key)
+    for e in graph.es:
+        for attr in graph.edge_attributes():
+            val = e[attr]
+            if isinstance(val, str) and "{version}" in val:
+                e[attr] = val.replace("{version}", key)

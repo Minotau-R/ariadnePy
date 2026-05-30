@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-import networkx as nx
+import igraph as ig
+import matplotlib.pyplot as plt
 
 from ariadnepy.graph._weave import _draw_path, _parse_by
 from ariadnepy.plot._utils import node_colors, edge_colors
 
-import matplotlib.pyplot as plt
-
 
 def plot_path(
-    graph: nx.MultiDiGraph,
+    graph: ig.Graph,
     by: Optional[str] = None,
     k: int = 1,
     include: Optional[List[str]] = None,
@@ -27,7 +26,7 @@ def plot_path(
     Parameters
     ----------
     graph:
-        NetworkX MultiDiGraph returned by ``ariadne()``.
+        igraph Graph returned by ``ariadne()``.
     by:
         Path formula string, e.g. ``"ko ~ ec"``. If None, the full graph
         is drawn without any path highlighted.
@@ -62,60 +61,51 @@ def plot_path(
     if by is not None:
         from_, to = _parse_by(by)
         path_df = _draw_path(graph, from_, to, k, include, exclude, res_name)
-        path_nodes = (
-            [path_df.iloc[0]["from"]]
-            + list(path_df["to"])
-        )
-        path_edges = [
-            (row["from"], row["to"]) for _, row in path_df.iterrows()
-        ]
+        path_nodes = [path_df.iloc[0]["from"]] + list(path_df["to"])
+        path_edges = [(row["from"], row["to"]) for _, row in path_df.iterrows()]
 
+    # Optionally restrict to path nodes/edges only
     draw_graph = graph
     if focus and path_nodes:
-        draw_graph = graph.subgraph(path_nodes).copy()
+        path_idx = [graph.vs.find(name=n).index for n in path_nodes if n in graph.vs["name"]]
+        draw_graph = graph.induced_subgraph(path_idx)
 
-    # Build layout
-    pos = nx.spring_layout(draw_graph, seed=42)
+    # igraph Fruchterman-Reingold layout → list of (x, y) coords
+    layout = draw_graph.layout("fr", seed=42)
+    all_names = draw_graph.vs["name"]
+    pos = {name: layout[i] for i, name in enumerate(all_names)}
 
-    all_nodes = list(draw_graph.nodes())
-    all_edges = list(draw_graph.edges(data=True))
-
-    n_colors = [
-        node_colors(all_nodes, path_nodes)[n] for n in all_nodes
+    all_edges_raw = [
+        (draw_graph.vs[e.source]["name"], draw_graph.vs[e.target]["name"],
+         e["source"] if "source" in draw_graph.edge_attributes() else "")
+        for e in draw_graph.es
     ]
-    e_colors = edge_colors(
-        [(u, v) for u, v, _ in all_edges],
-        path_edges,
-    )
+
+    n_colors_map = node_colors(all_names, path_nodes)
+    n_colors = [n_colors_map[n] for n in all_names]
+    e_colors = edge_colors([(u, v) for u, v, _ in all_edges_raw], path_edges)
 
     fig, ax = plt.subplots(figsize=figsize)
-    nx.draw_networkx(
-        draw_graph,
-        pos=pos,
-        ax=ax,
-        node_color=n_colors,
-        edge_color=e_colors,
-        node_size=800,
-        font_size=8,
-        arrows=True,
-        arrowsize=15,
-        width=1.5,
-    )
 
-    # Edge labels: resource source names
-    edge_labels = {
-        (u, v): d.get("source", "")
-        for u, v, d in all_edges
-    }
-    nx.draw_networkx_edge_labels(
-        draw_graph, pos=pos, edge_labels=edge_labels,
-        font_size=6, ax=ax,
-    )
+    # Draw edges
+    for (u, v, src), color in zip(all_edges_raw, e_colors):
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        ax.annotate(
+            "", xy=(x1, y1), xytext=(x0, y0),
+            arrowprops=dict(arrowstyle="-|>", color=color, lw=1.5),
+        )
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        ax.text(mx, my, src, fontsize=5, ha="center", va="center", color=color)
 
-    ax.set_title(
-        f"Path {k}: {by}" if by else "Resource Graph",
-        fontsize=12,
-    )
+    # Draw nodes
+    xs = [pos[n][0] for n in all_names]
+    ys = [pos[n][1] for n in all_names]
+    ax.scatter(xs, ys, c=n_colors, s=800, zorder=3)
+    for name, x, y in zip(all_names, xs, ys):
+        ax.text(x, y - 0.07, name, fontsize=8, ha="center", va="top")
+
+    ax.set_title(f"Path {k}: {by}" if by else "Resource Graph", fontsize=12)
     ax.axis("off")
     plt.tight_layout()
     return fig

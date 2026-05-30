@@ -4,7 +4,7 @@ from __future__ import annotations
 import importlib.util
 from unittest.mock import patch
 
-import networkx as nx
+import igraph as ig
 import pandas as pd
 import pytest
 
@@ -12,7 +12,6 @@ from ariadnepy.exceptions import AriadneError
 from ariadnepy.graph._weave import (
     _draw_path,
     _map_complex_modules,
-    _nx_to_igraph,
     _parse_by,
     _process_complex_modules,
     draw_path,
@@ -29,17 +28,27 @@ needs_scipy = pytest.mark.skipif(
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
+def _ig_build(nodes, edges):
+    """Build a directed igraph. edges = [(src, tgt, {attr: val, ...})]."""
+    g = ig.Graph(directed=True)
+    for n in nodes:
+        g.add_vertex(name=n)
+    for src, tgt, attrs in edges:
+        g.add_edge(g.vs.find(name=src).index, g.vs.find(name=tgt).index)
+        for k, v in attrs.items():
+            g.es[-1][k] = v
+    return g
+
+
 @pytest.fixture
 def linear_graph():
     """A -[DB1]-> B -[DB1]-> C -[DB1]-> D  (exactly one path)."""
-    g = nx.MultiDiGraph()
-    g.graph["versions"] = {}
-    for node in ("A", "B", "C", "D"):
-        g.add_node(node, name=node)
-    g.add_edge("A", "B", source="DB1", url=None)
-    g.add_edge("B", "C", source="DB1", url=None)
-    g.add_edge("C", "D", source="DB1", url=None)
-    return g
+    return _ig_build(
+        ["A", "B", "C", "D"],
+        [("A", "B", {"source": "DB1", "url": None}),
+         ("B", "C", {"source": "DB1", "url": None}),
+         ("C", "D", {"source": "DB1", "url": None})],
+    )
 
 
 @pytest.fixture
@@ -47,19 +56,15 @@ def branching_graph():
     """
     A -[DB1]-> B -[DB1]-> D
     A -[DB2]-> C -[DB2]-> D
-    Two equal-length paths — used to verify k=1 vs k=2 ordering.
-    Both Python (igraph) and R (igraph) use the same C-level Yen's algorithm,
-    so the ordering is identical across languages.
+    Two equal-length paths — both igraph (Python) and R use the same C-level Yen's.
     """
-    g = nx.MultiDiGraph()
-    g.graph["versions"] = {}
-    for node in ("A", "B", "C", "D"):
-        g.add_node(node, name=node)
-    g.add_edge("A", "B", source="DB1", url=None)
-    g.add_edge("B", "D", source="DB1", url=None)
-    g.add_edge("A", "C", source="DB2", url=None)
-    g.add_edge("C", "D", source="DB2", url=None)
-    return g
+    return _ig_build(
+        ["A", "B", "C", "D"],
+        [("A", "B", {"source": "DB1", "url": None}),
+         ("B", "D", {"source": "DB1", "url": None}),
+         ("A", "C", {"source": "DB2", "url": None}),
+         ("C", "D", {"source": "DB2", "url": None})],
+    )
 
 
 @pytest.fixture
@@ -67,53 +72,38 @@ def include_exclude_graph():
     """
     A -[DB1]-> B -[DB1]-> D
     A -[DB1]-> C -[DB1]-> D
-    B = the 'uniref90'-like include node; C = the 'taxid'-like exclude node.
-    Mirrors the R test: .draw_path(graph, bugsig~ko, 1, 'uniref90', 'taxid', NULL)
+    Mirrors R test: .draw_path(graph, bugsig~ko, 1, 'uniref90', 'taxid', NULL)
     """
-    g = nx.MultiDiGraph()
-    g.graph["versions"] = {}
-    for node in ("A", "B", "C", "D"):
-        g.add_node(node, name=node)
-    g.add_edge("A", "B", source="DB1", url=None)
-    g.add_edge("B", "D", source="DB1", url=None)
-    g.add_edge("A", "C", source="DB1", url=None)
-    g.add_edge("C", "D", source="DB1", url=None)
-    return g
+    return _ig_build(
+        ["A", "B", "C", "D"],
+        [("A", "B", {"source": "DB1", "url": None}),
+         ("B", "D", {"source": "DB1", "url": None}),
+         ("A", "C", {"source": "DB1", "url": None}),
+         ("C", "D", {"source": "DB1", "url": None})],
+    )
 
 
 def _file_graph():
-    """Single-step ko → ec graph with a file-backend edge. Used by weave_path tests."""
-    g = nx.MultiDiGraph()
-    g.graph["versions"] = {}
-    for node in ("ko", "ec"):
-        g.add_node(node, name=node)
-    g.add_edge("ko", "ec", source="FileDB", url="dummy_url")
-    return g
+    """Single-step ko → ec graph with a file-backend edge."""
+    return _ig_build(
+        ["ko", "ec"],
+        [("ko", "ec", {"source": "FileDB", "url": "dummy_url"})],
+    )
 
 
 @pytest.fixture
 def gmm_graph(tmp_path):
-    """
-    Graph for weave_complex tests.
-    ec -[FileDB]-> ko  (traversal path)
-    gmm -[GMM]-> ko    (tells weave_complex which inter-node and where the GMM file is)
-
-    GMM file has two modules:
-      M001: component with complexes {K00001,K00002} and {K00003}
-      M002: component with complex   {K00004}
-    """
+    """Graph for weave_complex tests with a real GMM file."""
     gmm_file = tmp_path / "test.gmm"
     gmm_file.write_text(
         "M001\tModule 1\nK00001,K00002\tK00003\n///\nM002\tModule 2\nK00004\n///\n",
         encoding="utf-8",
     )
-    g = nx.MultiDiGraph()
-    g.graph["versions"] = {}
-    for node in ("ec", "gmm", "ko"):
-        g.add_node(node, name=node)
-    g.add_edge("ec", "ko", source="FileDB", url="dummy_url")
-    g.add_edge("gmm", "ko", source="GMM", url=str(gmm_file))
-    return g
+    return _ig_build(
+        ["ec", "gmm", "ko"],
+        [("ec",  "ko", {"source": "FileDB", "url": "dummy_url"}),
+         ("gmm", "ko", {"source": "GMM",    "url": str(gmm_file)})],
+    )
 
 
 # ── _parse_by ─────────────────────────────────────────────────────────────────
@@ -140,36 +130,26 @@ def test_parse_by_empty_side():
         _parse_by("~ ec")
 
 
-# ── _nx_to_igraph ─────────────────────────────────────────────────────────────
+# ── igraph graph properties ───────────────────────────────────────────────────
+
+def test_graph_is_igraph(linear_graph):
+    assert isinstance(linear_graph, ig.Graph)
 
 
-def test_nx_to_igraph_vertex_count(linear_graph):
-    ig_g = _nx_to_igraph(linear_graph)
-    assert ig_g.vcount() == 4
+def test_graph_vertex_count(linear_graph):
+    assert linear_graph.vcount() == 4
 
 
-def test_nx_to_igraph_vertex_names(linear_graph):
-    ig_g = _nx_to_igraph(linear_graph)
-    assert set(ig_g.vs["name"]) == {"A", "B", "C", "D"}
+def test_graph_vertex_names(linear_graph):
+    assert set(linear_graph.vs["name"]) == {"A", "B", "C", "D"}
 
 
-def test_nx_to_igraph_edge_count(linear_graph):
-    ig_g = _nx_to_igraph(linear_graph)
-    assert ig_g.ecount() == 3
+def test_graph_edge_count(linear_graph):
+    assert linear_graph.ecount() == 3
 
 
-def test_nx_to_igraph_deduplicates_parallel_edges():
-    """MultiDiGraph parallel edges must be collapsed to one in igraph."""
-    g = nx.MultiDiGraph()
-    g.add_edge("X", "Y", source="DB1")
-    g.add_edge("X", "Y", source="DB2")
-    ig_g = _nx_to_igraph(g)
-    assert ig_g.ecount() == 1
-
-
-def test_nx_to_igraph_is_directed(linear_graph):
-    ig_g = _nx_to_igraph(linear_graph)
-    assert ig_g.is_directed()
+def test_graph_is_directed(linear_graph):
+    assert linear_graph.is_directed()
 
 
 # ── _draw_path — basic path traversal ────────────────────────────────────────
@@ -201,16 +181,14 @@ def test_draw_path_k2_differs_from_k1(branching_graph):
 
 
 def test_draw_path_matches_igraph_directly(branching_graph):
+    """_draw_path k=1 must agree with igraph.get_k_shortest_paths directly.
+    Graph is already igraph — same C-level algorithm as R's igraph.
     """
-    _draw_path k=1 must agree with calling igraph.get_k_shortest_paths directly.
-    This verifies Python now uses the same C-level algorithm as R's igraph.
-    """
-    ig_g = _nx_to_igraph(branching_graph)
-    node_to_idx = {v["name"]: v.index for v in ig_g.vs}
-    raw = ig_g.get_k_shortest_paths(
+    node_to_idx = {v["name"]: v.index for v in branching_graph.vs}
+    raw = branching_graph.get_k_shortest_paths(
         node_to_idx["A"], to=node_to_idx["D"], k=1, mode="all", output="vpath"
     )
-    expected = [ig_g.vs[i]["name"] for i in raw[0]]
+    expected = [branching_graph.vs[i]["name"] for i in raw[0]]
 
     df = _draw_path(branching_graph, "A", "D", k=1, include=[], exclude=[], res_name=None)
     actual = [df.iloc[0]["from"]] + list(df["to"])

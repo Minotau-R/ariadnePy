@@ -7,7 +7,7 @@ from __future__ import annotations
 import warnings
 from unittest.mock import patch
 
-import networkx as nx
+import igraph as ig
 import pandas as pd
 import pytest
 
@@ -16,9 +16,9 @@ from ariadnepy.exceptions import AriadneError
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-def _graph_with_node(name: str, **attrs) -> nx.MultiDiGraph:
-    g = nx.MultiDiGraph()
-    g.add_node(name, name=name, **attrs)
+def _graph_with_node(name: str, **attrs) -> ig.Graph:
+    g = ig.Graph(directed=True)
+    g.add_vertex(name=name, **attrs)
     return g
 
 

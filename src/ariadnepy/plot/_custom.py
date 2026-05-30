@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import networkx as nx  # type: ignore[import-untyped]
+import igraph as ig
 import pandas as pd
 
 from ariadnepy.exceptions import AriadneError
@@ -39,12 +39,12 @@ def _read_linkmap(file: str, **kwargs) -> pd.DataFrame:
 
 
 def add_resource(
-    graph: nx.MultiDiGraph,
+    graph: ig.Graph,
     file: str,
     res_name: str = "Custom",
     force: bool = False,
     **kwargs,
-) -> nx.MultiDiGraph:
+) -> ig.Graph:
     """Add a user-defined resource to the ariadne graph.
 
     The file must be a two-column table where column names are the feature
@@ -68,7 +68,7 @@ def add_resource(
 
     Returns
     -------
-    nx.MultiDiGraph
+    ig.Graph
         Updated graph with new nodes and edges for the custom resource.
 
     Examples
@@ -101,13 +101,19 @@ def add_resource(
         "to": to_col,
     }
 
-    graph = nx.MultiDiGraph(graph)
+    graph = graph.copy()
 
-    # Add nodes if missing
+    # Add vertices if missing
+    existing = set(graph.vs["name"]) if graph.vcount() > 0 else set()
     for node in (from_col, to_col):
-        if not graph.has_node(node):
-            graph.add_node(node, name=node)
+        if node not in existing:
+            graph.add_vertex(name=node)
+            existing.add(node)
 
     # Add edge
-    graph.add_edge(from_col, to_col, **edge_attrs)
+    src_idx = graph.vs.find(name=from_col).index
+    tgt_idx = graph.vs.find(name=to_col).index
+    graph.add_edge(src_idx, tgt_idx)
+    for k, v in edge_attrs.items():
+        graph.es[-1][k] = v
     return graph

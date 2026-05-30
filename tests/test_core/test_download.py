@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import networkx as nx
+import igraph as ig
 import pytest
 
 from ariadnepy.exceptions import AriadneDownloadError, AriadneParseError
@@ -73,7 +73,7 @@ def test_read_gml_parses_valid_file(tmp_path):
     gml.write_text('graph [\n  directed 1\n  node [ id 0 name "ko" ]\n]\n')
     from ariadnepy.core._download import read_gml
     g = read_gml(gml)
-    assert isinstance(g, nx.MultiDiGraph)
+    assert isinstance(g, ig.Graph)
 
 
 def test_read_gml_missing_file_raises(tmp_path):
@@ -93,28 +93,28 @@ def test_read_gml_invalid_content_raises(tmp_path):
 # ── insert_version ────────────────────────────────────────────────────────────
 
 def test_insert_version_replaces_node_attr():
-    g = nx.MultiDiGraph()
-    g.add_node("ko", url="https://example.com/{version}/ko.parquet")
+    g = ig.Graph(directed=True)
+    g.add_vertex(name="ko", url="https://example.com/{version}/ko.parquet")
     from ariadnepy.core._download import insert_version
     insert_version(g, "v2")
-    assert g.nodes["ko"]["url"] == "https://example.com/v2/ko.parquet"
+    assert g.vs.find(name="ko")["url"] == "https://example.com/v2/ko.parquet"
 
 
 def test_insert_version_replaces_edge_attr():
-    g = nx.MultiDiGraph()
-    g.add_node("ko")
-    g.add_node("ec")
-    g.add_edge("ko", "ec", url="https://example.com/{version}/ko2ec.parquet")
+    g = ig.Graph(directed=True)
+    g.add_vertex(name="ko")
+    g.add_vertex(name="ec")
+    g.add_edge(0, 1)
+    g.es[0]["url"] = "https://example.com/{version}/ko2ec.parquet"
     from ariadnepy.core._download import insert_version
     insert_version(g, "v2")
-    edge_data = list(g.edges(data=True))[0][2]
-    assert edge_data["url"] == "https://example.com/v2/ko2ec.parquet"
+    assert g.es[0]["url"] == "https://example.com/v2/ko2ec.parquet"
 
 
 def test_insert_version_leaves_non_template_attrs_unchanged():
-    g = nx.MultiDiGraph()
-    g.add_node("ko", name="ko", url="https://example.com/static.parquet")
+    g = ig.Graph(directed=True)
+    g.add_vertex(name="ko", url="https://example.com/static.parquet")
     from ariadnepy.core._download import insert_version
     insert_version(g, "v2")
-    assert g.nodes["ko"]["url"] == "https://example.com/static.parquet"
-    assert g.nodes["ko"]["name"] == "ko"
+    assert g.vs.find(name="ko")["url"] == "https://example.com/static.parquet"
+    assert g.vs.find(name="ko")["name"] == "ko"

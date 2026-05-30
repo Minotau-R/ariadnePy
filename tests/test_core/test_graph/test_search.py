@@ -4,7 +4,7 @@ Uses synthetic offline graphs — no network calls.
 """
 from __future__ import annotations
 
-import networkx as nx
+import igraph as ig
 import pandas as pd
 import pytest
 
@@ -13,13 +13,21 @@ from ariadnepy.exceptions import AriadneError
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-def _file_graph() -> nx.MultiDiGraph:
+def _file_graph() -> ig.Graph:
     """Minimal linear graph: ko -KEGG-> ec -KEGG-> pathway (no back-edges)."""
-    g = nx.MultiDiGraph()
+    g = ig.Graph(directed=True)
     for n in ("ko", "ec", "pathway"):
-        g.add_node(n, name=n)
-    g.add_edge("ko", "ec",      source="KEGG", url="", from_="ko", to="ec")
-    g.add_edge("ec", "pathway", source="KEGG", url="", from_="ec", to="pathway")
+        g.add_vertex(name=n)
+    g.add_edge(g.vs.find(name="ko").index, g.vs.find(name="ec").index)
+    g.es[0]["source"] = "KEGG"
+    g.es[0]["url"] = ""
+    g.es[0]["from_"] = "ko"
+    g.es[0]["to"] = "ec"
+    g.add_edge(g.vs.find(name="ec").index, g.vs.find(name="pathway").index)
+    g.es[1]["source"] = "KEGG"
+    g.es[1]["url"] = ""
+    g.es[1]["from_"] = "ec"
+    g.es[1]["to"] = "pathway"
     return g
 
 
@@ -52,13 +60,16 @@ def test_search_path_shows_path_nodes(capsys):
 
 def test_search_path_k2_prints_two_paths(capsys):
     """With k=2 and a branching graph, two path blocks should be printed."""
-    g = nx.MultiDiGraph()
+    g = ig.Graph(directed=True)
     for n in ("ko", "mid1", "mid2", "ec"):
-        g.add_node(n, name=n)
-    g.add_edge("ko",   "mid1", source="KEGG", url="")
-    g.add_edge("ko",   "mid2", source="KEGG", url="")
-    g.add_edge("mid1", "ec",   source="KEGG", url="")
-    g.add_edge("mid2", "ec",   source="KEGG", url="")
+        g.add_vertex(name=n)
+    g.add_edge(g.vs.find(name="ko").index,   g.vs.find(name="mid1").index)
+    g.add_edge(g.vs.find(name="ko").index,   g.vs.find(name="mid2").index)
+    g.add_edge(g.vs.find(name="mid1").index, g.vs.find(name="ec").index)
+    g.add_edge(g.vs.find(name="mid2").index, g.vs.find(name="ec").index)
+    for e in g.es:
+        e["source"] = "KEGG"
+        e["url"] = ""
 
     from ariadnepy.graph._weave import search_path
     search_path(g, "ko ~ ec", k=2, )
@@ -126,6 +137,6 @@ def test_draw_path_version_column_present():
     """draw_path adds version and url columns from graph metadata."""
     from ariadnepy.graph._weave import draw_path
     g = _file_graph()
-    g.graph["versions"] = {"KEGG": "latest"}
+    g["versions"] = {"KEGG": "latest"}
     df = draw_path(g, "ko ~ ec", k=1)
     assert "version" in df.columns
