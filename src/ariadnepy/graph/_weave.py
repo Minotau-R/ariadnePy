@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+import igraph as ig
 import networkx as nx
 import pandas as pd
 
@@ -18,6 +19,8 @@ try:
     import numpy as np
     _HAS_SCIPY = True
 except ImportError:
+    sp: Any = None
+    np: Any = None
     _HAS_SCIPY = False
 
 
@@ -82,6 +85,29 @@ def _generic2specific(
     return result
 
 
+# ── igraph conversion ────────────────────────────────────────────────────────
+
+def _nx_to_igraph(nx_graph: nx.Graph) -> ig.Graph:
+    """Convert a NetworkX MultiDiGraph to a directed igraph Graph.
+
+    Parallel edges are deduplicated — for unweighted hop-count shortest paths
+    they are redundant. Vertex names are stored in the 'name' attribute so
+    results can be mapped back to string node identifiers.
+    """
+    nodes = list(nx_graph.nodes())
+    node_idx = {n: i for i, n in enumerate(nodes)}
+    seen_edges: set = set()
+    edges = []
+    for u, v in nx_graph.edges():
+        e = (node_idx[u], node_idx[v])
+        if e not in seen_edges:
+            seen_edges.add(e)
+            edges.append(e)
+    g = ig.Graph(n=len(nodes), edges=edges, directed=True)
+    g.vs["name"] = nodes
+    return g
+
+
 # ── Path finding ──────────────────────────────────────────────────────────────
 
 def _draw_path(
@@ -118,8 +144,16 @@ def _draw_path(
         ]
         work_graph = graph.edge_subgraph(kept_edges).copy()
 
-    # Use undirected traversal (equivalent to R's mode = "all")
-    undirected = work_graph.to_undirected()
+    ig_graph = _nx_to_igraph(work_graph)
+    node_to_idx = {v["name"]: v.index for v in ig_graph.vs}
+
+    if from_ not in node_to_idx:
+        raise AriadneError(f"Source node {from_!r} not found in filtered graph.")
+    if to not in node_to_idx:
+        raise AriadneError(f"Target node {to!r} not found in filtered graph.")
+
+    from_idx = node_to_idx[from_]
+    to_idx = node_to_idx[to]
 
     candidate = k
     attempt = 0
@@ -127,20 +161,28 @@ def _draw_path(
 
     while attempt < max_attempts and len(kept_paths) < k:
         try:
-            gen = nx.shortest_simple_paths(undirected, from_, to)
-            all_paths: List[List[str]] = []
-            for _ in range(candidate):
-                try:
-                    all_paths.append(next(gen))
-                except StopIteration:
-                    break
-        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            paths_idx = ig_graph.get_k_shortest_paths(
+                from_idx, to=to_idx, k=candidate, mode="all", output="vpath"
+            )
+        except Exception:
             raise AriadneError(f"No path found between {from_!r} and {to!r}.")
+
+        if not paths_idx:
+            raise AriadneError(f"No path found between {from_!r} and {to!r}.")
+
+        all_paths = [
+            [ig_graph.vs[i]["name"] for i in path] for path in paths_idx
+        ]
 
         kept_paths = [
             p for p in all_paths
             if all(n in p for n in include) and not any(n in p for n in exclude)
         ]
+
+        # igraph returned fewer paths than requested — no more paths exist
+        if len(paths_idx) < candidate:
+            break
+
         candidate *= buffer_factor
         attempt += 1
 
@@ -587,6 +629,14 @@ def _map_complex_modules(
     Coverage of module m for origin o = (components of m covered by o) / (total components in m).
     A component is covered if o provides ALL features in at least one of its complexes.
     """
+    o2f = linkmaps.get("origin2feature")
+    m2comp = linkmaps.get("module2component")
+    comp2c = linkmaps.get("component2complex")
+    c2f = linkmaps.get("complex2feature")
+
+    if any(x is None for x in (o2f, m2comp, comp2c, c2f)):
+        raise AriadneError("Missing required linkmap tables for complex module coverage.")
+
     if not _HAS_SCIPY:
         raise AriadneError(
             "scipy is required for weave_complex coverage computation. "
@@ -595,7 +645,7 @@ def _map_complex_modules(
 
     def _binary_matrix(
         df: pd.DataFrame, row_col: str, col_col: str
-    ) -> Tuple[sp.csr_matrix, List, List]:
+    ) -> Tuple[Any, List, List]:
         row_cat = pd.Categorical(df[row_col])
         col_cat = pd.Categorical(df[col_col])
         mat = sp.csr_matrix(
@@ -606,14 +656,6 @@ def _map_complex_modules(
             shape=(len(row_cat.categories), len(col_cat.categories)),
         )
         return mat, list(row_cat.categories), list(col_cat.categories)
-
-    o2f = linkmaps.get("origin2feature")
-    m2comp = linkmaps.get("module2component")
-    comp2c = linkmaps.get("component2complex")
-    c2f = linkmaps.get("complex2feature")
-
-    if any(x is None for x in (o2f, m2comp, comp2c, c2f)):
-        raise AriadneError("Missing required linkmap tables for complex module coverage.")
 
     # Align all matrices over a shared feature vocabulary
     all_features = sorted(set(o2f[feature_col]) | set(c2f["feature"]))
