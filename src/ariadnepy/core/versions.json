@@ -1,0 +1,35 @@
+{
+  "_comment": "Canonical resource version metadata for ariadne. This file is the single source of truth shared between the R ariadne package and ariadnePy. To add or update a resource version, edit only this file.",
+  "default_graph_record": 19397292,
+  "static": [
+    {"source": "GO",       "version": "2026-03-25",                                     "key": "2026-03-25",                                             "graph": 19397292, "default": true},
+    {"source": "GO",       "version": "2026-01-23",                                     "key": "2026-01-23",                                             "graph": 19397292, "default": false},
+    {"source": "GO",       "version": "2025-10-10",                                     "key": "2025-10-10",                                             "graph": 19397292, "default": false},
+    {"source": "GM",       "version": "v1",                                             "key": "omixer/omixer-rpmR/raw/refs/heads/main/inst/extdata",    "graph": 19397292, "default": true},
+    {"source": "TIGRFAMs", "version": "v15",                                            "key": "release_15.0",                                           "graph": 19397292, "default": true},
+    {"source": "WoL",      "version": "v2",                                             "key": "wol2",                                                   "graph": 19397292, "default": true},
+    {"source": "WoL",      "version": "v20April2021",                                   "key": "wol-20April2021",                                        "graph": 18788726, "default": false},
+    {"source": "KEGG",     "version": "latest",                                         "key": "",                                                       "graph": 19397292, "default": true},
+    {"source": "OTT",      "version": "latest",                                         "key": "",                                                       "graph": 19397292, "default": true},
+    {"source": "Rhea",     "version": "latest",                                         "key": "",                                                       "graph": 19397292, "default": true},
+    {"source": "UniProt",  "version": "latest",                                         "key": "",                                                       "graph": 19397292, "default": true}
+  ],
+  "dynamic_zenodo": {
+    "BugSigDB":    5606166,
+    "ChocoPhlAn":  17100034,
+    "MSigDB":      15377497
+  },
+  "source_urls": {
+    "BugSigDB":   "https://zenodo.org/records/",
+    "ChocoPhlAn": "https://zenodo.org/records/",
+    "GM":         "https://github.com/",
+    "GO":         "https://release.geneontology.org/",
+    "KEGG":       "https://www.genome.jp/kegg",
+    "MSigDB":     "https://zenodo.org/records/",
+    "OTT":        "https://opentreeoflife.github.io",
+    "Rhea":       "https://www.rhea-db.org",
+    "TIGRFAMs":   "https://ftp.ncbi.nlm.nih.gov/hmm/TIGRFAMs/",
+    "UniProt":    "https://www.uniprot.org",
+    "WoL":        "https://ftp.microbio.me/pub/"
+  }
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -16,43 +17,13 @@ except ImportError:
 
 ZENODO_BASE_API = "https://zenodo.org/api/records"
 GML_URL_TEMPLATE = "https://zenodo.org/records/{record_id}/files/{source}.gml"
-DEFAULT_GRAPH_RECORD = 19397292
 
-# Sources whose versions are fetched dynamically from Zenodo
-_DYNAMIC_ZENODO_SOURCES: Dict[str, int] = {
-    "BugSigDB": 5606166,
-    "ChocoPhlAn": 17100034,
-    "MSigDB": 15377497,
-}
+# URL of the canonical versions.json — single source of truth shared with R.
+# Point this at the R repo (raw GitHub) or a Zenodo record once Giulio decides.
+# ariadnePy falls back to the bundled versions.json when the URL is unreachable.
+REMOTE_METADATA_URL: Optional[str] = None  # e.g. "https://raw.githubusercontent.com/Minotau-R/ariadne/main/inst/extdata/versions.json"
 
-# Sources with pinned version metadata
-_STATIC_VERSION_METADATA: List[Dict[str, Any]] = [
-    {"source": "GO", "version": "2026-03-25", "key": "2026-03-25", "graph": DEFAULT_GRAPH_RECORD, "default": True},
-    {"source": "GO", "version": "2026-01-23", "key": "2026-01-23", "graph": DEFAULT_GRAPH_RECORD, "default": False},
-    {"source": "GO", "version": "2025-10-10", "key": "2025-10-10", "graph": DEFAULT_GRAPH_RECORD, "default": False},
-    {"source": "GM", "version": "v1", "key": "omixer/omixer-rpmR/raw/refs/heads/main/inst/extdata", "graph": DEFAULT_GRAPH_RECORD, "default": True},
-    {"source": "TIGRFAMs", "version": "v15", "key": "release_15.0", "graph": DEFAULT_GRAPH_RECORD, "default": True},
-    {"source": "WoL", "version": "v2", "key": "wol2", "graph": DEFAULT_GRAPH_RECORD, "default": True},
-    {"source": "WoL", "version": "v20April2021", "key": "wol-20April2021", "graph": 18788726, "default": False},
-    {"source": "KEGG", "version": "latest", "key": "", "graph": DEFAULT_GRAPH_RECORD, "default": True},
-    {"source": "OTT", "version": "latest", "key": "", "graph": DEFAULT_GRAPH_RECORD, "default": True},
-    {"source": "Rhea", "version": "latest", "key": "", "graph": DEFAULT_GRAPH_RECORD, "default": True},
-    {"source": "UniProt", "version": "latest", "key": "", "graph": DEFAULT_GRAPH_RECORD, "default": True},
-]
-
-_SOURCE_BASE_URLS: Dict[str, str] = {
-    "BugSigDB": "https://zenodo.org/records/",
-    "ChocoPhlAn": "https://zenodo.org/records/",
-    "GM": "https://github.com/",
-    "GO": "https://release.geneontology.org/",
-    "KEGG": "https://www.genome.jp/kegg",
-    "MSigDB": "https://zenodo.org/records/",
-    "OTT": "https://opentreeoflife.github.io",
-    "Rhea": "https://www.rhea-db.org",
-    "TIGRFAMs": "https://ftp.ncbi.nlm.nih.gov/hmm/TIGRFAMs/",
-    "UniProt": "https://www.uniprot.org",
-    "WoL": "https://ftp.microbio.me/pub/",
-}
+_BUNDLED_METADATA = Path(__file__).with_name("versions.json")
 
 
 def fetch_json(url: str) -> Dict[str, Any]:
@@ -70,8 +41,24 @@ def fetch_json(url: str) -> Dict[str, Any]:
         raise AriadneDownloadError(f"Request failed: {exc}") from exc
 
 
-def _load_dynamic_versions(source: str) -> List[Dict[str, Any]]:
-    record_id = _DYNAMIC_ZENODO_SOURCES[source]
+def _load_metadata_json() -> Dict[str, Any]:
+    """Load versions.json from the remote URL, falling back to the bundled copy.
+
+    Priority:
+    1. REMOTE_METADATA_URL (when set) — keeps Python in sync with R automatically
+    2. Bundled versions.json shipped with the package — works offline
+    """
+    if REMOTE_METADATA_URL:
+        try:
+            return fetch_json(REMOTE_METADATA_URL)
+        except Exception:
+            pass  # fall through to bundled copy
+    with open(_BUNDLED_METADATA, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _load_dynamic_versions(source: str, record_id: int) -> List[Dict[str, Any]]:
+    default_graph_record = 19397292
     data = fetch_json(f"{ZENODO_BASE_API}/{record_id}/versions")
     hits = data.get("hits", {}).get("hits", [])
     rows = []
@@ -83,7 +70,7 @@ def _load_dynamic_versions(source: str) -> List[Dict[str, Any]]:
             "source": source,
             "version": version_name,
             "key": str(hit.get("id", "")),
-            "graph": DEFAULT_GRAPH_RECORD,
+            "graph": default_graph_record,
             "default": idx == 0,
         })
     if not rows:
@@ -92,14 +79,22 @@ def _load_dynamic_versions(source: str) -> List[Dict[str, Any]]:
 
 
 def load_version_metadata() -> pd.DataFrame:
-    """Return a DataFrame of all registered resource versions."""
-    rows = list(_STATIC_VERSION_METADATA)
-    for source in sorted(_DYNAMIC_ZENODO_SOURCES):
-        rows.extend(_load_dynamic_versions(source))
+    """Return a DataFrame of all registered resource versions.
+
+    Static and dynamic-Zenodo entries are read from versions.json (remote or
+    bundled). Dynamic sources have their version list fetched live from Zenodo.
+    """
+    cfg = _load_metadata_json()
+
+    rows: List[Dict[str, Any]] = list(cfg.get("static", []))
+
+    for source, record_id in sorted(cfg.get("dynamic_zenodo", {}).items()):
+        rows.extend(_load_dynamic_versions(source, record_id))
+
     metadata = pd.DataFrame(rows)
     if metadata.empty:
         raise AriadneError("Failed to build ariadne version metadata.")
-    metadata.attrs["urls"] = _SOURCE_BASE_URLS
+    metadata.attrs["urls"] = cfg.get("source_urls", {})
     return metadata
 
 
@@ -153,8 +148,8 @@ def list_resource_versions(default: bool = False) -> pd.DataFrame:
         metadata = metadata[metadata["default"]].copy()
     else:
         metadata = metadata.copy()
-    urls = metadata.attrs.get("urls", _SOURCE_BASE_URLS)
-    metadata["url"] = metadata["source"].map(urls) + metadata["key"].astype(str) + "/"
+    urls = metadata.attrs.get("urls", {})
+    metadata["url"] = metadata["source"].map(urls).fillna("") + metadata["key"].astype(str) + "/"
     metadata = metadata.rename(columns={"source": "resource"})
     return metadata[["resource", "version", "url"]].reset_index(drop=True)
 
