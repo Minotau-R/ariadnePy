@@ -16,6 +16,8 @@ from ariadnepy.graph._names import link_names
 from ariadnepy.plot._draw import plot_path
 from ariadnepy.plot._custom import add_resource
 from ariadnepy.resources._data import load_butyrate
+from ariadnepy.anndata._modules import add_modules, get_modules
+from ariadnepy.anndata._humann import process_gene_families
 
 __all__ = [
     "__version__",
@@ -40,4 +42,8 @@ __all__ = [
     "add_resource",
     # data
     "load_butyrate",
+    # anndata integration
+    "add_modules",
+    "get_modules",
+    "process_gene_families",
 ]
