@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -19,6 +21,9 @@ ZENODO_BASE_API = "https://zenodo.org/api/records"
 GML_URL_TEMPLATE = "https://zenodo.org/records/{record_id}/files/{source}.gml"
 DEFAULT_GRAPH_RECORD = 19397292
 
+# Canonical sysdata.rda from Giulio's R package — single source of truth.
+_RDA_URL = "https://raw.githubusercontent.com/Minotau-R/ariadne/main/R/sysdata.rda"
+
 # URL base for each source — used to build human-readable URLs in list_resource_versions()
 _SOURCE_BASE_URLS: Dict[str, str] = {
     "BugSigDB":   "https://zenodo.org/records/",
@@ -34,13 +39,7 @@ _SOURCE_BASE_URLS: Dict[str, str] = {
     "WoL":        "https://ftp.microbio.me/pub/",
 }
 
-# Path to sysdata.rda in the sibling ariadne R package (dev environment).
-# project/
-#   ariadne/R/sysdata.rda   <- Giulio's source of truth
-#   ariadnePy/src/ariadnepy/core/_versions.py   <- this file
-_RDA_PATH = Path(__file__).parents[4] / "ariadne" / "R" / "sysdata.rda"
-
-# Bundled fallback — used when the R package is not present (e.g. pip install)
+# Bundled fallback — used when offline or GitHub is unreachable
 _BUNDLED_METADATA = Path(__file__).with_name("versions.json")
 
 
@@ -60,27 +59,45 @@ def fetch_json(url: str) -> Dict[str, Any]:
 
 
 def _load_from_rda() -> Optional[pd.DataFrame]:
-    """Read versionMetadata directly from ariadne's sysdata.rda.
+    """Fetch sysdata.rda from Giulio's R package on GitHub and extract versionMetadata.
 
-    This is the single source of truth Giulio maintains in the R package.
-    Returns None if pyreadr is not installed or the file does not exist
-    (e.g. production pip install without the R package present).
+    This is the single source of truth. Returns None if the network is
+    unreachable, so the caller can fall back to the bundled versions.json.
     """
     import pyreadr
 
-    if not _RDA_PATH.exists():
-        return None
+    tmp_path: Optional[str] = None
+    try:
+        # Download binary .rda to a temp file
+        with tempfile.NamedTemporaryFile(suffix=".rda", delete=False) as tmp:
+            tmp_path = tmp.name
+            if _requests is not None:
+                resp = _requests.get(_RDA_URL, timeout=30)
+                resp.raise_for_status()
+                tmp.write(resp.content)
+            else:
+                urllib.request.urlretrieve(_RDA_URL, tmp_path)
 
-    result = pyreadr.read_r(str(_RDA_PATH))
-    raw: Optional[pd.DataFrame] = result.get("versionMetadata")
-    if raw is None or raw.empty:
-        return None
+        result = pyreadr.read_r(tmp_path)
+        raw: Optional[pd.DataFrame] = result.get("versionMetadata")
+        if raw is None or raw.empty:
+            return None
 
-    df: pd.DataFrame = raw.copy()
-    df["graph"] = df["graph"].fillna(DEFAULT_GRAPH_RECORD).astype(int)
-    df["default"] = df["default"].astype(bool)
-    df["key"] = df["key"].fillna("").astype(str)
-    return df
+        df: pd.DataFrame = raw.copy()
+        df["graph"] = df["graph"].fillna(DEFAULT_GRAPH_RECORD).astype(int)
+        df["default"] = df["default"].astype(bool)
+        df["key"] = df["key"].fillna("").astype(str)
+        return df
+
+    except Exception:
+        return None  # network unavailable — caller falls back to bundled JSON
+
+    finally:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def _load_from_bundled_json() -> pd.DataFrame:
