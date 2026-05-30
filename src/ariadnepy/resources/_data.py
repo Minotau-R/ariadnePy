@@ -21,7 +21,7 @@ def load_butyrate() -> pd.DataFrame:
     >>> from ariadnepy.resources import load_butyrate
     >>> df = load_butyrate()
     """
-    data_file = Path(__file__).resolve().parent.parent.parent.parent / "data" / "butyrate.csv"
+    data_file = Path(__file__).resolve().parent / "data" / "butyrate.csv"
     if not data_file.exists():
         raise FileNotFoundError(
             f"Bundled dataset not found at {data_file}. "

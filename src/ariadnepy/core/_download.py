@@ -54,7 +54,7 @@ def read_gml(path: Path) -> nx.MultiDiGraph:
     if not path.exists():
         raise AriadneDownloadError(f"GML file not found: {path}")
     try:
-        return nx.read_gml(str(path), label="name")
+        return nx.MultiDiGraph(nx.read_gml(str(path), label="name"))
     except Exception as exc:
         raise AriadneParseError(f"Cannot parse GML file {path}: {exc}") from exc
 
