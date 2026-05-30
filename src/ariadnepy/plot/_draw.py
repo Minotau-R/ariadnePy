@@ -4,15 +4,10 @@ from typing import List, Optional
 
 import networkx as nx
 
-from ariadnepy.exceptions import AriadneError
 from ariadnepy.graph._weave import _draw_path, _parse_by
 from ariadnepy.plot._utils import node_colors, edge_colors
 
-try:
-    import matplotlib.pyplot as plt
-    _HAS_MPL = True
-except ImportError:
-    _HAS_MPL = False
+import matplotlib.pyplot as plt
 
 
 def plot_path(
@@ -61,12 +56,6 @@ def plot_path(
     >>> fig = plot_path(graph, "ko ~ ec", k=5)
     >>> fig.savefig("path.png")
     """
-    if not _HAS_MPL:
-        raise AriadneError(
-            "matplotlib is required for plot_path. "
-            "Install with: pip install matplotlib"
-        )
-
     path_nodes: List[str] = []
     path_edges: List[tuple] = []
 

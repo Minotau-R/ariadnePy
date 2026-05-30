@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import igraph as ig
 import networkx as nx
@@ -14,14 +14,8 @@ try:
 except ImportError:
     _requests = None
 
-try:
-    import scipy.sparse as sp
-    import numpy as np
-    _HAS_SCIPY = True
-except ImportError:
-    sp: Any = None
-    np: Any = None
-    _HAS_SCIPY = False
+import scipy.sparse as sp
+import numpy as np
 
 
 # ── Formula parsing ───────────────────────────────────────────────────────────
@@ -530,7 +524,7 @@ def _fetch_edge(
 
 def _linkmap_to_sparse(
     df: pd.DataFrame,
-) -> "Tuple[Any, List, List]":
+) -> Tuple[sp.csr_matrix, List, List]:
     """Convert a 2-col linkmap DataFrame to a binary CSR sparse matrix.
 
     Returns (matrix, row_labels, col_labels).
@@ -563,40 +557,27 @@ def _weave_linkmaps(
     if not frames:
         raise AriadneError("No linkmaps to weave.")
 
-    if _HAS_SCIPY:
-        mat, row_labels, col_labels = _linkmap_to_sparse(frames[0])
+    mat, row_labels, col_labels = _linkmap_to_sparse(frames[0])
 
-        for frame in frames[1:]:
-            next_mat, next_row, next_col = _linkmap_to_sparse(frame)
+    for frame in frames[1:]:
+        next_mat, next_row, next_col = _linkmap_to_sparse(frame)
 
-            # Align shared dimension: current col_labels ↔ next row_labels
-            shared = sorted(set(col_labels) & set(next_row))
-            if not shared:
-                raise AriadneError("Cannot chain linkmaps: no shared features found.")
+        shared = sorted(set(col_labels) & set(next_row))
+        if not shared:
+            raise AriadneError("Cannot chain linkmaps: no shared features found.")
 
-            col_idx = {c: i for i, c in enumerate(col_labels)}
-            row_idx = {r: i for i, r in enumerate(next_row)}
-            c_sel = [col_idx[s] for s in shared]
-            r_sel = [row_idx[s] for s in shared]
+        col_idx = {c: i for i, c in enumerate(col_labels)}
+        row_idx = {r: i for i, r in enumerate(next_row)}
+        c_sel = [col_idx[s] for s in shared]
+        r_sel = [row_idx[s] for s in shared]
 
-            mat = mat[:, c_sel] @ next_mat[r_sel, :]
-            col_labels = next_col
+        mat = mat[:, c_sel] @ next_mat[r_sel, :]
+        col_labels = next_col
 
-        # Non-zero entries in the product = valid origin → target mappings
-        rows, cols = mat.nonzero()
-        result = pd.DataFrame(
-            {from_: [row_labels[r] for r in rows], to: [col_labels[c] for c in cols]}
-        ).reset_index(drop=True)
-
-    else:
-        # Fallback: pandas merge (correct but less memory-efficient)
-        result = frames[0].copy()
-        for frame in frames[1:]:
-            shared = list(set(result.columns) & set(frame.columns))
-            if not shared:
-                raise AriadneError("Cannot chain linkmaps: no shared column found.")
-            result = result.merge(frame, on=shared[0], how="inner")
-        result = result[[from_, to]].drop_duplicates().reset_index(drop=True)
+    rows, cols = mat.nonzero()
+    result = pd.DataFrame(
+        {from_: [row_labels[r] for r in rows], to: [col_labels[c] for c in cols]}
+    ).reset_index(drop=True)
 
     if from_ not in result.columns or to not in result.columns:
         raise AriadneError(
@@ -687,15 +668,9 @@ def _map_complex_modules(
     if any(x is None for x in (o2f, m2comp, comp2c, c2f)):
         raise AriadneError("Missing required linkmap tables for complex module coverage.")
 
-    if not _HAS_SCIPY:
-        raise AriadneError(
-            "scipy is required for weave_complex coverage computation. "
-            "Install with: pip install scipy"
-        )
-
     def _binary_matrix(
         df: pd.DataFrame, row_col: str, col_col: str
-    ) -> Tuple[Any, List, List]:
+    ) -> Tuple[sp.csr_matrix, List, List]:
         row_cat = pd.Categorical(df[row_col])
         col_cat = pd.Categorical(df[col_col])
         mat = sp.csr_matrix(
