@@ -73,5 +73,5 @@ def test_list_resource_versions_url_column_is_string():
     with patch("ariadnepy.core._versions.load_version_metadata", return_value=_mock_meta()):
         from ariadnepy.core._versions import list_resource_versions
         df = list_resource_versions()
-    assert df["url"].dtype == object
+    assert pd.api.types.is_string_dtype(df["url"])
     assert df["url"].str.len().gt(0).all()

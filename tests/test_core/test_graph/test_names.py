@@ -91,7 +91,7 @@ def test_link_names_ids_missing_entry_is_none():
     with patch("ariadnepy.graph._names._fetch_node_names", side_effect=lambda *_: _MOCK_NAMES.copy()):
         result = link_names(g, "ko", ids=["K00001", "K99999"], verbose=False)
     assert result is not None
-    assert result.iloc[1]["ko.name"] is None
+    assert pd.isna(result.iloc[1]["ko.name"])
 
 
 def test_link_names_ids_missing_warns_when_verbose():
@@ -122,7 +122,7 @@ def test_link_names_names_missing_entry_is_none():
     with patch("ariadnepy.graph._names._fetch_node_names", side_effect=lambda *_: _MOCK_NAMES.copy()):
         result = link_names(g, "ko", names=["nonexistent enzyme"], verbose=False)
     assert result is not None
-    assert result.iloc[0]["ko"] is None
+    assert pd.isna(result.iloc[0]["ko"])
 
 
 # ── None backend ──────────────────────────────────────────────────────────────
