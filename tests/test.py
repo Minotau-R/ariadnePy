@@ -13,3 +13,5 @@ print(g)
 
 # # Select specific versions
 # g = ariadnepy.ariadne(versions={"GO": "2026-01-23", "KEGG": "latest"})
+
+# Example code in tests
