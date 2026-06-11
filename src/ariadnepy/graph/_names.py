@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import warnings
 from typing import List, Optional, Sequence
 
@@ -22,8 +23,11 @@ def _fetch_kegg_names(node_name: str, ids: Optional[List[str]]) -> Optional[pd.D
     """Fetch id→name pairs from the KEGG REST API."""
     if _requests is None:
         return None
-    kegg_targets = {"ko", "pathway", "enzyme", "ec", "network", "reaction",
-                    "compound", "glycan", "drug", "dgroup", "disease"}
+    kegg_targets = {
+        "ko", "pathway", "module", "brite", "genome",
+        "enzyme", "ec", "reaction", "rclass", "compound", "glycan",
+        "network", "drug", "dgroup", "disease",
+    }
     target = node_name if node_name in kegg_targets else None
     if target is None:
         return None
@@ -38,13 +42,11 @@ def _fetch_kegg_names(node_name: str, ids: Optional[List[str]]) -> Optional[pd.D
         for line in resp.text.strip().splitlines():
             parts = line.split("\t", 1)
             if len(parts) == 2:
-                id_ = parts[0].strip()
-                name = parts[1].strip()
-                # Keep only first name for ko (strip semicolon-delimited extras)
-                if target == "ko":
-                    name = name.split(";")[0].strip()
-                else:
-                    name = name.split(";")[-1].strip()
+                # KEGG returns IDs with database prefix ("ko:K00001") — strip it
+                id_ = re.sub(r"^[^:]+:", "", parts[0].strip())
+                # Strip "[DB:ID]" annotation then take first semicolon-delimited name
+                name = re.sub(r"\s*\[[^\]]+\]$", "", parts[1]).strip()
+                name = name.split(";")[0].strip()
                 rows.append((id_, name))
         return pd.DataFrame(rows, columns=["ids", "names"]) if rows else None
     except Exception:
@@ -128,10 +130,15 @@ def _fetch_node_names(
         return _fetch_gmm_gbm_names(node_row.get("url", ""))
 
     url = node_row.get("url")
-    if url and not pd.isna(url):
+    if url and not pd.isna(url) and str(url) != "NA":
         return _fetch_file_names(node_row, ids)
 
-    return _fetch_kegg_names(name, ids)
+    # Use the "specific" attribute for the KEGG API target name (e.g. vertex
+    # "kegg_path" has specific="pathway", vertex "kegg_disease" has
+    # specific="disease"). Fall back to the vertex name when specific is absent.
+    specific = str(node_row.get("specific") or "")
+    kegg_target = specific if specific not in ("", "NA") else name
+    return _fetch_kegg_names(kegg_target, ids)
 
 
 # ── Key matching ──────────────────────────────────────────────────────────────

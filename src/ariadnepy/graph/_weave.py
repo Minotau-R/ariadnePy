@@ -67,21 +67,25 @@ def _get_edge_key(from_: str, to: str) -> str:
 def _generic2specific(
     path_df: pd.DataFrame, node_df: pd.DataFrame, col: str
 ) -> List[str]:
-    """Map a generic node name (e.g. 'ko') to its specific query attribute."""
+    """Map a generic node name (e.g. 'ko') to its specific query attribute.
+
+    Uses the 'specific' vertex attribute written by ariadne's GML files.
+    Falls back to the vertex name itself when no valid specific is found.
+    """
     result = []
     for name in path_df[col]:
         matched = False
-        if not node_df.empty and "spec" in node_df.columns:
+        for spec_col in ("spec", "specific"):
+            if node_df.empty or spec_col not in node_df.columns:
+                continue
             row = node_df[node_df["name"] == name]
-            if not row.empty and pd.notna(row.iloc[0].get("spec")):
-                result.append(str(row.iloc[0]["spec"]))
+            if row.empty:
+                continue
+            val = row.iloc[0].get(spec_col)
+            if val is not None and not (isinstance(val, float) and pd.isna(val)) and str(val) not in ("NA", ""):
+                result.append(str(val))
                 matched = True
-        if not matched:
-            for cand in (f"{name}_id", f"{name}_name", "id", "ids", "name", "names"):
-                if not node_df.empty and cand in node_df.columns:
-                    result.append(cand)
-                    matched = True
-                    break
+                break
         if not matched:
             result.append(name)
     return result
@@ -198,10 +202,15 @@ def _add_edge_metadata(
     path_df["version"] = path_df["source"].map(versions)
 
     graph_keys = [_get_edge_key(r["from"], r["to"]) for _, r in edge_df.iterrows()]
+    graph_keys_rev = [_get_edge_key(r["to"], r["from"]) for _, r in edge_df.iterrows()]
     path_keys = [_get_edge_key(r["from"], r["to"]) for _, r in path_df.iterrows()]
 
-    url_map = dict(zip(graph_keys, edge_df.get("url", pd.Series(dtype=str))))
-    path_df["url"] = [url_map.get(k) for k in path_keys]
+    url_col = edge_df.get("url", pd.Series(dtype=str))
+    url_map_fwd = dict(zip(graph_keys, url_col))
+    url_map_rev = dict(zip(graph_keys_rev, url_col))
+    # Prefer forward-direction URL; fall back to reverse when path traverses
+    # an undirected edge in the opposite direction (mode="all" path-finding).
+    path_df["url"] = [url_map_fwd.get(k) or url_map_rev.get(k) for k in path_keys]
 
     if internal:
         path_df["initFrom"] = path_df["from"]

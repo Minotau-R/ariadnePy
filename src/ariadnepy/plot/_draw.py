@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import igraph as ig
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 
 from ariadnepy.graph._weave import _draw_path, _parse_by
 from ariadnepy.plot._utils import node_colors, edge_colors
@@ -18,7 +19,7 @@ def plot_path(
     res_name: Optional[List[str]] = None,
     focus: bool = False,
     figsize: tuple = (12, 8),
-) -> "plt.Figure":
+) -> Figure:
     """Visualise the resource graph with an optional highlighted path.
 
     Equivalent to R's ``plotPath(graph, ko ~ ec, k=5)``.
@@ -71,7 +72,7 @@ def plot_path(
         draw_graph = graph.induced_subgraph(path_idx)
 
     # igraph Fruchterman-Reingold layout → list of (x, y) coords
-    layout = draw_graph.layout("fr", seed=42)
+    layout = draw_graph.layout("fr")
     all_names = draw_graph.vs["name"]
     pos = {name: layout[i] for i, name in enumerate(all_names)}
 
