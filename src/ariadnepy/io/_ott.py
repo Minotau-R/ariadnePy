@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import re
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional
 
 import pandas as pd
 
-from ariadnepy.exceptions import AriadneError, AriadneDownloadError
+from ariadnepy.exceptions import AriadneDownloadError, AriadneError
 
 try:
     import requests as _requests
@@ -19,31 +18,31 @@ _TAXON_INFO_URL = "https://api.opentreeoflife.org/v3/taxonomy/taxon_info"
 _EXTERNAL_SOURCES = {"ncbi", "gbif", "worms", "if", "irmng"}
 
 
-def _strip_rank_prefix(names: List[str]) -> List[str]:
+def _strip_rank_prefix(names: list[str]) -> list[str]:
     return [re.sub(r"^[a-z]__", "", n) for n in names]
 
 
 def _query_tnrs(
-    names: List[str],
+    names: list[str],
     to: str,
     timeout: float,
     batch_size: int = 1000,
     workers: int = 4,
-) -> List[Optional[str]]:
+) -> list[str | None]:
     """Match taxonomy names via TNRS API, return OTT id (or other target) per name."""
     if _requests is None:
         raise AriadneDownloadError("'requests' is required for OTT queries.")
 
     batches = [names[i : i + batch_size] for i in range(0, len(names), batch_size)]
 
-    def _run(batch: List[str]) -> List[Optional[str]]:
+    def _run(batch: list[str]) -> list[str | None]:
         resp = _requests.post(
             _TNRS_URL,
             json={"names": batch, "do_approximate_matching": False},
             timeout=timeout,
         )
         resp.raise_for_status()
-        out: List[Optional[str]] = []
+        out: list[str | None] = []
         for entry in resp.json().get("results", []):
             matches = entry.get("matches", [])
             if not matches:
@@ -73,7 +72,7 @@ def _query_taxon_info(
     to: str,
     prefix: str,
     timeout: float,
-) -> Optional[str]:
+) -> str | None:
     """Query the OTT taxon_info endpoint for a single ID."""
     if _requests is None:
         raise AriadneDownloadError("'requests' is required for OTT queries.")
@@ -104,7 +103,7 @@ def _query_taxon_info(
 def query_ott(
     from_: str,
     to: str,
-    init: Optional[List[str]],
+    init: list[str] | None,
     timeout: float = 1e6,
     batch_size: int = 1000,
     workers: int = 4,
@@ -148,27 +147,27 @@ def query_ott(
         values = _query_tnrs(clean, to, timeout, batch_size, workers)
         rows = [
             (orig, val)
-            for orig, val in zip(init, values)
+            for orig, val in zip(init, values, strict=False)
             if val is not None
         ]
         df = pd.DataFrame(rows, columns=[from_, to])
 
     elif from_ == "ott":
-        def _fetch(raw_id: str) -> Optional[str]:
+        def _fetch(raw_id: str) -> str | None:
             return _query_taxon_info(raw_id, to, "ott_id", timeout)
 
         with ThreadPoolExecutor(max_workers=min(workers, len(clean))) as pool:
             values = list(pool.map(_fetch, clean))
-        rows = [(orig, val) for orig, val in zip(init, values) if val is not None]
+        rows = [(orig, val) for orig, val in zip(init, values, strict=False) if val is not None]
         df = pd.DataFrame(rows, columns=[from_, to])
 
     elif from_ in _EXTERNAL_SOURCES:
-        def _fetch_ext(raw_id: str) -> Optional[str]:
+        def _fetch_ext(raw_id: str) -> str | None:
             return _query_taxon_info(f"{from_}:{raw_id}", to, "source_id", timeout)
 
         with ThreadPoolExecutor(max_workers=min(workers, len(clean))) as pool:
             values = list(pool.map(_fetch_ext, clean))
-        rows = [(orig, val) for orig, val in zip(init, values) if val is not None]
+        rows = [(orig, val) for orig, val in zip(init, values, strict=False) if val is not None]
         df = pd.DataFrame(rows, columns=[from_, to])
 
     else:

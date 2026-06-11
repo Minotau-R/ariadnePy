@@ -1,8 +1,8 @@
 from ariadnepy.exceptions import (  # noqa: F401
-    AriadneError,
+    AriadneCacheError,
     AriadneDownloadError,
-    AriadneVersionError,
+    AriadneError,
     AriadneParseError,
     AriadnePathError,
-    AriadneCacheError,
+    AriadneVersionError,
 )

@@ -29,10 +29,10 @@ def _require_anndata() -> None:
         raise AriadneError(
             "'anndata' is required for process_gene_families. "
             "Install with: pip install anndata"
-        )
+        ) from None
 
 
-def process_gene_families(adata: "AnnData") -> "AnnData":
+def process_gene_families(adata: AnnData) -> AnnData:
     """Parse HUMAnN gene family feature names and add metadata to adata.var.
 
     Filters to features that contain a ``|`` separator and do not contain

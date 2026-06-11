@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import warnings
-from typing import List, Optional, Sequence
+from collections.abc import Sequence
 
 import pandas as pd
 
@@ -19,7 +19,7 @@ _BUGSIG_GMT = "https://zenodo.org/records/15272273/files/bugsigdb_signatures_mix
 
 # ── Node lookup backends ──────────────────────────────────────────────────────
 
-def _fetch_kegg_names(node_name: str, ids: Optional[List[str]]) -> Optional[pd.DataFrame]:
+def _fetch_kegg_names(node_name: str, ids: list[str] | None) -> pd.DataFrame | None:
     """Fetch id→name pairs from the KEGG REST API."""
     if _requests is None:
         return None
@@ -53,7 +53,7 @@ def _fetch_kegg_names(node_name: str, ids: Optional[List[str]]) -> Optional[pd.D
         return None
 
 
-def _fetch_bugsig_names(ids: Optional[List[str]]) -> Optional[pd.DataFrame]:
+def _fetch_bugsig_names(ids: list[str] | None) -> pd.DataFrame | None:
     """Fetch BugSigDB signature id→name pairs from Zenodo GMT file."""
     if _requests is None:
         return None
@@ -75,7 +75,7 @@ def _fetch_bugsig_names(ids: Optional[List[str]]) -> Optional[pd.DataFrame]:
         return None
 
 
-def _fetch_gmm_gbm_names(url: str) -> Optional[pd.DataFrame]:
+def _fetch_gmm_gbm_names(url: str) -> pd.DataFrame | None:
     """Fetch module id→name from a tab-separated URL (GMM/GBM)."""
     if _requests is None or not url:
         return None
@@ -94,8 +94,8 @@ def _fetch_gmm_gbm_names(url: str) -> Optional[pd.DataFrame]:
 
 def _fetch_file_names(
     node_row: pd.Series,
-    ids: Optional[List[str]],
-) -> Optional[pd.DataFrame]:
+    ids: list[str] | None,
+) -> pd.DataFrame | None:
     """Read id→name from a cached parquet file for file-backed resources."""
     url = node_row.get("url")
     source = node_row.get("source", "")
@@ -118,8 +118,8 @@ def _fetch_file_names(
 
 def _fetch_node_names(
     node_row: pd.Series,
-    ids: Optional[List[str]],
-) -> Optional[pd.DataFrame]:
+    ids: list[str] | None,
+) -> pd.DataFrame | None:
     """Route to the correct name-fetching backend for a graph node."""
     name = node_row.get("name", "")
 
@@ -147,7 +147,7 @@ def _match_key2val(
     linkmap: pd.DataFrame,
     x: str,
     what: int,
-    init: Optional[Sequence[str]],
+    init: Sequence[str] | None,
     verbose: bool,
 ) -> pd.DataFrame:
     """Filter/reorder linkmap rows to match init values.
@@ -184,10 +184,10 @@ def _match_key2val(
 def link_names(
     graph,
     x: str,
-    ids: Optional[Sequence[str]] = None,
-    names: Optional[Sequence[str]] = None,
+    ids: Sequence[str] | None = None,
+    names: Sequence[str] | None = None,
     verbose: bool = True,
-) -> Optional[pd.DataFrame]:
+) -> pd.DataFrame | None:
     """Retrieve names for IDs (or IDs for names) of a resource node.
 
     Equivalent to R's ``linkNames(graph, "gmm")`` or
@@ -230,7 +230,8 @@ def link_names(
         if x not in node_names:
             raise AriadneError(f"Node {x!r} not found in graph.")
         v = graph.vs.find(name=x)
-        node_row = pd.Series({"name": x, **{a: v[a] for a in graph.vertex_attributes() if a != "name"}})
+        attrs = {a: v[a] for a in graph.vertex_attributes() if a != "name"}
+        node_row = pd.Series({"name": x, **attrs})
     else:
         node_attrs = dict(graph.nodes(data=True))
         if x not in node_attrs:

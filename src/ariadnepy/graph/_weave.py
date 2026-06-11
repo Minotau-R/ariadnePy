@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from collections.abc import Sequence
 
 import igraph as ig
 import pandas as pd
@@ -13,13 +13,12 @@ try:
 except ImportError:
     _requests = None
 
-import scipy.sparse as sp
 import numpy as np
-
+import scipy.sparse as sp
 
 # ── Formula parsing ───────────────────────────────────────────────────────────
 
-def _parse_by(by: str) -> Tuple[str, str]:
+def _parse_by(by: str) -> tuple[str, str]:
     """Parse 'taxname ~ bugsig' into ('taxname', 'bugsig')."""
     parts = [p.strip() for p in by.split("~")]
     if len(parts) != 2 or not all(parts):
@@ -33,12 +32,12 @@ def _parse_by(by: str) -> Tuple[str, str]:
 
 def _get_graph_dataframes(
     graph: ig.Graph,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return (node_df, edge_df) extracted from the igraph Graph."""
     v_attrs = graph.vertex_attributes()
     node_rows = []
     for v in graph.vs:
-        row: Dict[str, object] = {"name": v["name"]}
+        row: dict[str, object] = {"name": v["name"]}
         for a in v_attrs:
             if a != "name":
                 row[a] = v[a]
@@ -66,7 +65,7 @@ def _get_edge_key(from_: str, to: str) -> str:
 
 def _generic2specific(
     path_df: pd.DataFrame, node_df: pd.DataFrame, col: str
-) -> List[str]:
+) -> list[str]:
     """Map a generic node name (e.g. 'ko') to its specific query attribute.
 
     Uses the 'specific' vertex attribute written by ariadne's GML files.
@@ -82,7 +81,9 @@ def _generic2specific(
             if row.empty:
                 continue
             val = row.iloc[0].get(spec_col)
-            if val is not None and not (isinstance(val, float) and pd.isna(val)) and str(val) not in ("NA", ""):
+            if (val is not None
+                    and not (isinstance(val, float) and pd.isna(val))
+                    and str(val) not in ("NA", "")):
                 result.append(str(val))
                 matched = True
                 break
@@ -98,9 +99,9 @@ def _draw_path(
     from_: str,
     to: str,
     k: int,
-    include: Optional[List[str]],
-    exclude: Optional[List[str]],
-    res_name: Optional[List[str]],
+    include: list[str] | None,
+    exclude: list[str] | None,
+    res_name: list[str] | None,
     buffer_factor: int = 2,
     max_attempts: int = 5,
 ) -> pd.DataFrame:
@@ -142,15 +143,15 @@ def _draw_path(
 
     candidate = k
     attempt = 0
-    kept_paths: List[List[str]] = []
+    kept_paths: list[list[str]] = []
 
     while attempt < max_attempts and len(kept_paths) < k:
         try:
             paths_idx = work_graph.get_k_shortest_paths(
                 from_idx, to=to_idx, k=candidate, mode="all", output="vpath"
             )
-        except Exception:
-            raise AriadneError(f"No path found between {from_!r} and {to!r}.")
+        except Exception as err:
+            raise AriadneError(f"No path found between {from_!r} and {to!r}.") from err
 
         if not paths_idx:
             raise AriadneError(f"No path found between {from_!r} and {to!r}.")
@@ -206,8 +207,8 @@ def _add_edge_metadata(
     path_keys = [_get_edge_key(r["from"], r["to"]) for _, r in path_df.iterrows()]
 
     url_col = edge_df.get("url", pd.Series(dtype=str))
-    url_map_fwd = dict(zip(graph_keys, url_col))
-    url_map_rev = dict(zip(graph_keys_rev, url_col))
+    url_map_fwd = dict(zip(graph_keys, url_col, strict=False))
+    url_map_rev = dict(zip(graph_keys_rev, url_col, strict=False))
     # Prefer forward-direction URL; fall back to reverse when path traverses
     # an undirected edge in the opposite direction (mode="all" path-finding).
     path_df["url"] = [url_map_fwd.get(k) or url_map_rev.get(k) for k in path_keys]
@@ -216,8 +217,8 @@ def _add_edge_metadata(
         path_df["initFrom"] = path_df["from"]
         path_df["initTo"] = path_df["to"]
 
-        from_map = dict(zip(graph_keys, edge_df["from"]))
-        to_map = dict(zip(graph_keys, edge_df["to"]))
+        from_map = dict(zip(graph_keys, edge_df["from"], strict=False))
+        to_map = dict(zip(graph_keys, edge_df["to"], strict=False))
         for i, (idx, row) in enumerate(path_df.iterrows()):
             if pd.notna(row.get("url")):
                 cf = from_map.get(path_keys[i])
@@ -236,7 +237,7 @@ def _add_edge_metadata(
 
 # ── IRI prefix helpers (SPARQL) ───────────────────────────────────────────────
 
-def _add_iri(ids: Sequence[str], source: str, from_: str) -> List[str]:
+def _add_iri(ids: Sequence[str], source: str, from_: str) -> list[str]:
     """Attach IRI prefixes required by UniProt/Rhea SPARQL endpoints."""
     ids = list(ids)
     if from_ in ("ecocyc", "metacyc"):
@@ -251,7 +252,7 @@ def _add_iri(ids: Sequence[str], source: str, from_: str) -> List[str]:
     return ids
 
 
-def _strip_iri(ids: Sequence[str], name: str) -> List[str]:
+def _strip_iri(ids: Sequence[str], name: str) -> list[str]:
     """Remove IRI prefixes from SPARQL result values."""
     out = []
     for x in ids:
@@ -269,7 +270,7 @@ _KEGG_EXT_DBS = {"chebi", "geneid", "proteinid", "pubchem", "uniprotkb"}
 
 
 def _fetch_kegg_edge(
-    step: pd.Series, init: Optional[List[str]]
+    step: pd.Series, init: list[str] | None
 ) -> pd.DataFrame:
     """Fetch one KEGG linkmap step via the KEGG REST API."""
     if _requests is None:
@@ -325,7 +326,7 @@ _SPARQL_ENDPOINTS = {
 
 
 def _fetch_sparql_edge(
-    step: pd.Series, init: Optional[List[str]], timeout: float
+    step: pd.Series, init: list[str] | None, timeout: float
 ) -> pd.DataFrame:
     """Fetch one SPARQL edge, delegating to io._sparql when available."""
     try:
@@ -382,7 +383,7 @@ _OTT_TAXON_INFO = "https://api.opentreeoflife.org/v3/taxonomy/taxon_info"
 
 
 def _fetch_ott_edge(
-    step: pd.Series, init: Optional[List[str]], timeout: float
+    step: pd.Series, init: list[str] | None, timeout: float
 ) -> pd.DataFrame:
     """Fetch OTT taxonomy mappings, delegating to io._ott when available."""
     try:
@@ -445,7 +446,7 @@ def _fetch_ott_edge(
 # ── Backend: file-based (parquet cache) ───────────────────────────────────────
 
 def _fetch_file_edge(
-    step: pd.Series, init: Optional[List[str]]
+    step: pd.Series, init: list[str] | None
 ) -> pd.DataFrame:
     """Read a cached parquet linkmap for one graph edge."""
     try:
@@ -457,7 +458,7 @@ def _fetch_file_edge(
         raise AriadneError(
             "resources._cache.cache_resource is not yet implemented. "
             "Cannot fetch file-backed edge."
-        )
+        ) from None
 
     cols = [step["specFrom"], step["specTo"]]
     df = pd.read_parquet(cached_path, columns=cols)
@@ -477,7 +478,7 @@ def _fetch_file_edge(
 # ── Edge dispatcher ───────────────────────────────────────────────────────────
 
 def _fetch_edge(
-    step: pd.Series, init: Optional[List[str]], timeout: float
+    step: pd.Series, init: list[str] | None, timeout: float
 ) -> pd.DataFrame:
     """Route one path step to the correct backend and return a linkmap."""
     source = step["source"]
@@ -520,7 +521,7 @@ def _fetch_edge(
 
 def _linkmap_to_sparse(
     df: pd.DataFrame,
-) -> Tuple[sp.csr_matrix, List, List]:
+) -> tuple[sp.csr_matrix, list, list]:
     """Convert a 2-col linkmap DataFrame to a binary CSR sparse matrix.
 
     Returns (matrix, row_labels, col_labels).
@@ -538,7 +539,7 @@ def _linkmap_to_sparse(
 
 
 def _weave_linkmaps(
-    linkmaps: Dict[str, pd.DataFrame], from_: str, to: str
+    linkmaps: dict[str, pd.DataFrame], from_: str, to: str
 ) -> pd.DataFrame:
     """Chain a dict of 2-col DataFrames into a single from → to linkmap.
 
@@ -585,7 +586,7 @@ def _weave_linkmaps(
 
 # ── Complex module parsing and coverage math ──────────────────────────────────
 
-def _process_complex_modules(url: str) -> Dict[str, pd.DataFrame]:
+def _process_complex_modules(url: str) -> dict[str, pd.DataFrame]:
     """Parse a GMM/GBM flat file into module → component → complex → feature tables.
 
     Each block in the file is separated by '///'. Within a block, the first
@@ -603,9 +604,9 @@ def _process_complex_modules(url: str) -> Dict[str, pd.DataFrame]:
             lines = fh.read().splitlines()
 
     BREAK = "///"
-    blocks: Dict[str, List[str]] = {}
-    current_key: Optional[str] = None
-    current_block: List[str] = []
+    blocks: dict[str, list[str]] = {}
+    current_key: str | None = None
+    current_block: list[str] = []
 
     for line in lines:
         if line == BREAK:
@@ -621,9 +622,9 @@ def _process_complex_modules(url: str) -> Dict[str, pd.DataFrame]:
     if current_key is not None:
         blocks[current_key] = current_block
 
-    module_rows: List[Tuple] = []
-    component_rows: List[Tuple] = []
-    complex_rows: List[Tuple] = []
+    module_rows: list[tuple] = []
+    component_rows: list[tuple] = []
+    complex_rows: list[tuple] = []
 
     for module, block_lines in blocks.items():
         for idx, bline in enumerate(block_lines):
@@ -647,7 +648,7 @@ def _process_complex_modules(url: str) -> Dict[str, pd.DataFrame]:
 
 
 def _map_complex_modules(
-    linkmaps: Dict[str, pd.DataFrame],
+    linkmaps: dict[str, pd.DataFrame],
     origin_col: str,
     feature_col: str,
 ) -> pd.DataFrame:
@@ -666,7 +667,7 @@ def _map_complex_modules(
 
     def _binary_matrix(
         df: pd.DataFrame, row_col: str, col_col: str
-    ) -> Tuple[sp.csr_matrix, List, List]:
+    ) -> tuple[sp.csr_matrix, list, list]:
         row_cat = pd.Categorical(df[row_col])
         col_cat = pd.Categorical(df[col_col])
         mat = sp.csr_matrix(
@@ -712,7 +713,6 @@ def _map_complex_modules(
 
     # component × complex
     comp_cat = pd.Categorical(comp2c["component"])
-    cx_cat = pd.Categorical(comp2c["complex"])
     # Reindex complex axis to match complex_cat.categories
     cx_reindex = {c: i for i, c in enumerate(complex_cat.categories)}
     cx_codes = [cx_reindex.get(c, 0) for c in comp2c["complex"]]
@@ -729,7 +729,6 @@ def _map_complex_modules(
 
     # module × component
     mod_cat = pd.Categorical(m2comp["module"])
-    comp_cat2 = pd.Categorical(m2comp["component"])
     comp_reindex = {c: i for i, c in enumerate(comp_cat.categories)}
     comp_codes2 = [comp_reindex.get(c, 0) for c in m2comp["component"]]
     m2comp_mat = sp.csr_matrix(
@@ -766,15 +765,15 @@ def _build_path_mf(
     from_: str,
     to: str,
     k: int,
-    include: Optional[List[str]],
-    exclude: Optional[List[str]],
-    res_name: Optional[List[str]],
-    init: Optional[Union[List[str], pd.DataFrame]],
+    include: list[str] | None,
+    exclude: list[str] | None,
+    res_name: list[str] | None,
+    init: list[str] | pd.DataFrame | None,
     prune: bool,
     prune_last: bool,
     verbose: bool,
     timeout: float,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """Build the ordered chain of linkmaps for the path from_ → to."""
     if not isinstance(timeout, (int, float)) or timeout <= 0:
         raise AriadneError("'timeout' must be a positive number.")
@@ -783,7 +782,7 @@ def _build_path_mf(
     if not isinstance(verbose, bool):
         raise AriadneError("'verbose' must be True or False.")
 
-    linkmaps: Dict[str, pd.DataFrame] = {}
+    linkmaps: dict[str, pd.DataFrame] = {}
 
     # Stratified init: a 2-col DataFrame means the first column stratifies the second
     if isinstance(init, pd.DataFrame) and init.shape[1] == 2:
@@ -792,7 +791,7 @@ def _build_path_mf(
             print(f"  {init_vars[0]} stratified by {init_vars[1]}")
         linkmaps["init"] = init
         from_ = init_vars[1]
-        init_list: Optional[List[str]] = list(init.iloc[:, 1].unique())
+        init_list: list[str] | None = list(init.iloc[:, 1].unique())
     elif init is not None:
         init_list = list(dict.fromkeys(init))  # deduplicate, preserve order
     else:
@@ -825,10 +824,10 @@ def weave_path(
     graph: ig.Graph,
     by: str,
     k: int = 1,
-    include: Optional[List[str]] = None,
-    exclude: Optional[List[str]] = None,
-    res_name: Optional[List[str]] = None,
-    init: Optional[Union[List[str], pd.DataFrame]] = None,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
+    res_name: list[str] | None = None,
+    init: list[str] | pd.DataFrame | None = None,
     prune: bool = True,
     use_names: bool = True,
     verbose: bool = True,
@@ -892,7 +891,7 @@ def weave_path(
             name_map = link_names(graph, to, list(result[to]))
             if name_map is not None and not name_map.empty:
                 result[f"{to}.name"] = result[to].map(
-                    dict(zip(name_map.iloc[:, 0], name_map.iloc[:, 1]))
+                    dict(zip(name_map.iloc[:, 0], name_map.iloc[:, 1], strict=False))
                 )
         except (ImportError, AttributeError, Exception):
             pass
@@ -904,13 +903,13 @@ def weave_complex(
     graph: ig.Graph,
     by: str,
     k: int = 1,
-    include: Optional[List[str]] = None,
-    exclude: Optional[List[str]] = None,
-    res_name: Optional[List[str]] = None,
-    init: Optional[Union[List[str], pd.DataFrame]] = None,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
+    res_name: list[str] | None = None,
+    init: list[str] | pd.DataFrame | None = None,
     prune: bool = True,
     use_names: bool = True,
-    threshold: Optional[float] = None,
+    threshold: float | None = None,
     verbose: bool = True,
     timeout: float = 1e6,
 ) -> pd.DataFrame:
@@ -978,7 +977,7 @@ def weave_complex(
     else:
         # Non-complex: straightforward coverage ratio per module
         all_cols = list(list(linkmaps.values())[-1].columns)
-        feature_col, module_col = all_cols[0], all_cols[-1]
+        _, module_col = all_cols[0], all_cols[-1]
 
         full_map = _weave_linkmaps(linkmaps, from_, module_col)
         last_lm = list(linkmaps.values())[-1].copy()
@@ -1005,7 +1004,7 @@ def weave_complex(
             name_map = link_names(graph, to, list(coverage_df[to]))
             if name_map is not None and not name_map.empty:
                 coverage_df[f"{to}.name"] = coverage_df[to].map(
-                    dict(zip(name_map.iloc[:, 0], name_map.iloc[:, 1]))
+                    dict(zip(name_map.iloc[:, 0], name_map.iloc[:, 1], strict=False))
                 )
         except (ImportError, AttributeError, Exception):
             pass
@@ -1017,9 +1016,9 @@ def draw_path(
     graph: ig.Graph,
     by: str,
     k: int = 1,
-    include: Optional[List[str]] = None,
-    exclude: Optional[List[str]] = None,
-    res_name: Optional[List[str]] = None,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
+    res_name: list[str] | None = None,
 ) -> pd.DataFrame:
     """Return a reproducibility table describing each step in the chosen path.
 
@@ -1057,9 +1056,9 @@ def search_path(
     graph: ig.Graph,
     by: str,
     k: int = 1,
-    include: Optional[List[str]] = None,
-    exclude: Optional[List[str]] = None,
-    res_name: Optional[List[str]] = None,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
+    res_name: list[str] | None = None,
 ) -> None:
     """Print the first k shortest paths between two resources.
 

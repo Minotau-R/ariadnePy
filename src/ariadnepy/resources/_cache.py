@@ -6,11 +6,10 @@ import shutil
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
-from ariadnepy.exceptions import AriadneCacheError, AriadneError
+from ariadnepy.exceptions import AriadneCacheError
 
 try:
     from platformdirs import user_cache_dir as _user_cache_dir
@@ -84,9 +83,9 @@ def _localize(url: str) -> Path:
 def _preprocess(url: str, res_name: str, from_col: str, to_col: str) -> pd.DataFrame:
     """Download and parse one resource into a normalised 2-column DataFrame."""
     from ariadnepy.resources._parsers import (
-        process_one2one,
-        process_one2many,
         process_complex_modules,
+        process_one2many,
+        process_one2one,
     )
     from ariadnepy.resources._rds import process_rdslist
 

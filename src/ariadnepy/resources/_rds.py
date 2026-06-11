@@ -3,7 +3,6 @@ from __future__ import annotations
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import List
 
 import pandas as pd
 
@@ -15,13 +14,13 @@ except ImportError:
     _pyreadr = None
 
 
-def _extract_zip(zip_path: Path, dest_dir: Path) -> List[Path]:
+def _extract_zip(zip_path: Path, dest_dir: Path) -> list[Path]:
     """Extract a zip archive, recursively unpacking nested zips."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "r") as zf:
         zf.extractall(dest_dir)
 
-    extracted: List[Path] = []
+    extracted: list[Path] = []
     queue = [dest_dir]
     while queue:
         root = queue.pop()
@@ -39,14 +38,14 @@ def _extract_zip(zip_path: Path, dest_dir: Path) -> List[Path]:
     return extracted
 
 
-def _load_rds_files(paths: List[Path]) -> pd.DataFrame:
+def _load_rds_files(paths: list[Path]) -> pd.DataFrame:
     """Read a list of RDS files and concatenate their DataFrames."""
     if _pyreadr is None:
         raise AriadneError(
             "pyreadr is required to read RDS files. "
             "Install with: pip install pyreadr"
         )
-    frames: List[pd.DataFrame] = []
+    frames: list[pd.DataFrame] = []
     for path in paths:
         records = _pyreadr.read_r(str(path))
         for obj in records.values():

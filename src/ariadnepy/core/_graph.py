@@ -3,26 +3,25 @@ from __future__ import annotations
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import igraph as ig
 import pandas as pd
 
-from ariadnepy.exceptions import AriadneError
+from ariadnepy.core._download import download_gml, insert_version, read_gml
 from ariadnepy.core._versions import (
     GML_URL_TEMPLATE,
     load_version_metadata,
     resolve_versions,
 )
-from ariadnepy.core._download import download_gml, read_gml, insert_version
+from ariadnepy.exceptions import AriadneError
 
 
-def _combine_graphs(graphs: List[Tuple[str, ig.Graph]]) -> ig.Graph:
+def _combine_graphs(graphs: list[tuple[str, ig.Graph]]) -> ig.Graph:
     """Merge a list of (source_name, graph) pairs into one directed igraph Graph."""
     combined = ig.Graph(directed=True)
 
     # Track vertex names already added
-    name_to_idx: Dict[str, int] = {}
+    name_to_idx: dict[str, int] = {}
 
     for source, graph in graphs:
         # Add vertices (nodes)
@@ -57,8 +56,8 @@ def _combine_graphs(graphs: List[Tuple[str, ig.Graph]]) -> ig.Graph:
 
 
 def ariadne(
-    versions: Optional[Dict[str, str]] = None,
-    cache_dir: Optional[str] = None,
+    versions: dict[str, str] | None = None,
+    cache_dir: str | None = None,
 ) -> ig.Graph:
     """Build the ariadne resource graph.
 
@@ -101,7 +100,7 @@ def ariadne(
         Path(cache_dir) if cache_dir else Path(os.getcwd()) / ".ariadne_cache"
     )
 
-    def _fetch_one(row: pd.Series) -> Tuple[str, ig.Graph]:
+    def _fetch_one(row: pd.Series) -> tuple[str, ig.Graph]:
         source = row["source"]
         record_id = int(row["graph"])
         version_key = str(row["key"])

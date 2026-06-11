@@ -6,7 +6,7 @@ import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -25,7 +25,7 @@ DEFAULT_GRAPH_RECORD = 19397292
 _RDA_URL = "https://raw.githubusercontent.com/Minotau-R/ariadne/main/R/sysdata.rda"
 
 # URL base for each source — used to build human-readable URLs in list_resource_versions()
-_SOURCE_BASE_URLS: Dict[str, str] = {
+_SOURCE_BASE_URLS: dict[str, str] = {
     "BugSigDB":   "https://zenodo.org/records/",
     "ChocoPhlAn": "https://zenodo.org/records/",
     "GM":         "https://github.com/",
@@ -43,7 +43,7 @@ _SOURCE_BASE_URLS: Dict[str, str] = {
 _BUNDLED_METADATA = Path(__file__).with_name("versions.json")
 
 
-def fetch_json(url: str) -> Dict[str, Any]:
+def fetch_json(url: str) -> dict[str, Any]:
     """GET a URL and return parsed JSON, using requests if available."""
     if _requests is not None:
         resp = _requests.get(url, timeout=30)
@@ -58,7 +58,7 @@ def fetch_json(url: str) -> Dict[str, Any]:
         raise AriadneDownloadError(f"Request failed: {exc}") from exc
 
 
-def _load_from_rda() -> Optional[pd.DataFrame]:
+def _load_from_rda() -> pd.DataFrame | None:
     """Fetch sysdata.rda from Giulio's R package on GitHub and extract versionMetadata.
 
     This is the single source of truth. Returns None if the network is
@@ -66,7 +66,7 @@ def _load_from_rda() -> Optional[pd.DataFrame]:
     """
     import pyreadr
 
-    tmp_path: Optional[str] = None
+    tmp_path: str | None = None
     try:
         # Download binary .rda to a temp file
         with tempfile.NamedTemporaryFile(suffix=".rda", delete=False) as tmp:
@@ -79,7 +79,7 @@ def _load_from_rda() -> Optional[pd.DataFrame]:
                 urllib.request.urlretrieve(_RDA_URL, tmp_path)
 
         result = pyreadr.read_r(tmp_path)
-        raw: Optional[pd.DataFrame] = result.get("versionMetadata")
+        raw: pd.DataFrame | None = result.get("versionMetadata")
         if raw is None or raw.empty:
             return None
 
@@ -104,7 +104,7 @@ def _load_from_bundled_json() -> pd.DataFrame:
     """Load the bundled versions.json fallback."""
     with open(_BUNDLED_METADATA, encoding="utf-8") as fh:
         cfg = json.load(fh)
-    rows: List[Dict[str, Any]] = cfg.get("static", [])
+    rows: list[dict[str, Any]] = cfg.get("static", [])
     return pd.DataFrame(rows)
 
 
@@ -126,7 +126,7 @@ def load_version_metadata() -> pd.DataFrame:
     return metadata
 
 
-def resolve_versions(versions: Optional[Dict[str, str]]) -> Dict[str, str]:
+def resolve_versions(versions: dict[str, str] | None) -> dict[str, str]:
     """Resolve user-requested versions against available metadata.
 
     Fills in defaults for any source not explicitly requested and validates

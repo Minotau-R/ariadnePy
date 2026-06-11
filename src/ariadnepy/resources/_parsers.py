@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence, Union
 
 import pandas as pd
 
@@ -10,7 +10,7 @@ from ariadnepy.exceptions import AriadneParseError
 
 
 def process_one2one(
-    path: Union[str, Path],
+    path: str | Path,
     from_col: str,
     to_col: str,
     select: Sequence[int] = (0, 1),
@@ -33,13 +33,13 @@ def process_one2one(
 
 
 def process_one2many(
-    path: Union[str, Path],
+    path: str | Path,
     from_col: str,
     to_col: str,
-    key_fn: Optional[Callable[[str], str]] = None,
-    val_fn: Optional[Callable[[str], str]] = None,
+    key_fn: Callable[[str], str] | None = None,
+    val_fn: Callable[[str], str] | None = None,
     skiprows: int = 0,
-    val_cols: Optional[Union[slice, List[int]]] = None,
+    val_cols: slice | list[int] | None = None,
 ) -> pd.DataFrame:
     """Parse a TSV where the first column maps to multiple values in the rest.
 
@@ -78,7 +78,7 @@ def process_one2many(
 
 
 def process_complex_modules(
-    path: Union[str, Path],
+    path: str | Path,
     from_col: str,
     to_col: str,
 ) -> pd.DataFrame:

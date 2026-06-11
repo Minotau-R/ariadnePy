@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import re
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional
 
 import pandas as pd
 
-from ariadnepy.exceptions import AriadneError, AriadneDownloadError
+from ariadnepy.exceptions import AriadneDownloadError, AriadneError
 
 try:
     import requests as _requests
@@ -101,7 +99,7 @@ _IRI_PREFIX = {
 }
 
 
-def _iri_wrap(ids: List[str], from_: str) -> List[str]:
+def _iri_wrap(ids: list[str], from_: str) -> list[str]:
     """Wrap raw IDs with their SPARQL IRI prefix."""
     prefix = _IRI_PREFIX.get(from_)
     if prefix is None:
@@ -145,8 +143,8 @@ def _build_query(
     from_: str,
     to: str,
     clause: str,
-    batch: Optional[List[str]],
-    uniref_identity: Optional[float],
+    batch: list[str] | None,
+    uniref_identity: float | None,
 ) -> str:
     values_block = ""
     if batch:
@@ -173,7 +171,7 @@ def query_sparql(
     from_: str,
     to: str,
     endpoint: str,
-    init: Optional[List[str]] = None,
+    init: list[str] | None = None,
     timeout: float = 1e6,
     batch_size: int = 500,
     workers: int = 4,
@@ -207,7 +205,7 @@ def query_sparql(
     >>> from ariadnepy.io import query_sparql
     >>> df = query_sparql("uniref", "enzyme", "UniProt", init=["UniRef90_A0A000"])
     """
-    uniref_identity: Optional[float] = None
+    uniref_identity: float | None = None
     if to == "uniref50":
         uniref_identity = 0.5
     elif to == "uniref90":
@@ -224,7 +222,7 @@ def query_sparql(
     # Split init into batches
     batches = [init[i : i + batch_size] for i in range(0, len(init), batch_size)]
 
-    def _run_batch(batch: List[str]) -> pd.DataFrame:
+    def _run_batch(batch: list[str]) -> pd.DataFrame:
         query = _build_query(from_, to, clause, batch, uniref_identity)
         return _send_sparql(query, endpoint, timeout)
 

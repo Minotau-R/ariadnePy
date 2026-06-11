@@ -9,7 +9,7 @@ R equivalent:
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -26,7 +26,7 @@ def _require_anndata() -> None:
         raise AriadneError(
             "'anndata' is required for add_modules / get_modules. "
             "Install with: pip install anndata"
-        )
+        ) from None
 
 
 def _build_wide_modules(
@@ -70,7 +70,7 @@ def _build_wide_modules(
 
 def _match_index(
     side_df: pd.DataFrame,
-    key: Union[str, List[str]],
+    key: str | list[str],
     wide: pd.DataFrame,
 ) -> pd.Index:
     """Return the wide-table index value to use for each row of side_df.
@@ -104,10 +104,10 @@ def _match_index(
 
 
 def get_modules(
-    adata: "AnnData",
+    adata: AnnData,
     modules: pd.DataFrame,
     by: str = "var",
-    key: Union[str, List[str]] = "index",
+    key: str | list[str] = "index",
     use: str = "ids",
 ) -> pd.DataFrame:
     """Retrieve module membership for features or samples in an AnnData object.
@@ -163,12 +163,12 @@ def get_modules(
 
 
 def add_modules(
-    adata: "AnnData",
+    adata: AnnData,
     modules: pd.DataFrame,
     by: str = "var",
-    key: Union[str, List[str]] = "index",
+    key: str | list[str] = "index",
     use: str = "ids",
-) -> "AnnData":
+) -> AnnData:
     """Append module membership columns to an AnnData object's var or obs.
 
     Equivalent to R's ``addModules(tse, modules, by="rows", key="row.names")``.
@@ -201,7 +201,6 @@ def add_modules(
     >>> adata = add_modules(adata, lm, key="index")
     """
     _require_anndata()
-    import anndata as ad
 
     by = _normalise_by(by)
     membership = get_modules(adata, modules, by=by, key=key, use=use)

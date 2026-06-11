@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Optional
-
 import pandas as pd
 
 
-def path_to_edge_list(path_df: pd.DataFrame) -> List[tuple]:
+def path_to_edge_list(path_df: pd.DataFrame) -> list[tuple]:
     """Convert a draw_path DataFrame into a list of (from, to, source) tuples."""
     return [
         (row["from"], row["to"], row.get("source", ""))
@@ -14,8 +12,8 @@ def path_to_edge_list(path_df: pd.DataFrame) -> List[tuple]:
 
 
 def node_colors(
-    all_nodes: List[str],
-    path_nodes: Optional[List[str]] = None,
+    all_nodes: list[str],
+    path_nodes: list[str] | None = None,
     color_default: str = "#AED6F1",
     color_highlight: str = "#E74C3C",
 ) -> dict:
@@ -28,11 +26,11 @@ def node_colors(
 
 
 def edge_colors(
-    all_edges: List[tuple],
-    path_edges: Optional[List[tuple]] = None,
+    all_edges: list[tuple],
+    path_edges: list[tuple] | None = None,
     color_default: str = "#BDC3C7",
     color_highlight: str = "#E74C3C",
-) -> List[str]:
+) -> list[str]:
     """Return a color per edge, highlighting edges in path_edges."""
     path_set = {(u, v) for u, v, *_ in (path_edges or [])}
     return [
