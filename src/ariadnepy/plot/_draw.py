@@ -75,7 +75,8 @@ def plot_path(
             path_edges.append((row["from"], row["to"]))
             path_edge_labels[(row["from"], row["to"])] = row.get("source", "")
 
-    path_edge_set = set(path_edges)
+    # Use frozensets so edge lookup is direction-agnostic, matching R's sort(c(from,to)) approach.
+    path_edge_set = {frozenset(e) for e in path_edges}
 
     # prune/focus both restrict layout to the path subgraph.
     if path_nodes and (focus or prune):
@@ -88,8 +89,8 @@ def plot_path(
     else:
         draw_graph = graph
 
-    # Fruchterman-Reingold layout — equivalent to R ariadne's "stress" layout
-    layout = draw_graph.layout("fr")
+    # Kamada-Kawai layout — closest available equivalent to R ariadne's "stress" layout
+    layout = draw_graph.layout("kk")
     all_names = draw_graph.vs["name"]
     pos = {name: tuple(layout[i]) for i, name in enumerate(all_names)}
 
@@ -111,7 +112,7 @@ def plot_path(
     for u, v, src in all_edges_raw:
         if u not in pos or v not in pos:
             continue
-        is_path_edge = (u, v) in path_edge_set or (v, u) in path_edge_set
+        is_path_edge = frozenset((u, v)) in path_edge_set
         color = _C_EDGE_PATH if is_path_edge else _C_EDGE_BG
         lw    = 2.0 if is_path_edge else 1.0
         x0, y0 = pos[u]
