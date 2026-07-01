@@ -41,7 +41,7 @@ def plot_path(
     res_name : list of str, optional
         Restrict path edges to these resource names.
     prune : bool
-        If True, hide non-path nodes and edges (layout still uses full graph).
+        If True, show only path nodes and edges.
         Equivalent to R's ``prune=TRUE``.
     focus : bool
         If True, compute layout on path subgraph only (removes non-path nodes
@@ -75,18 +75,18 @@ def plot_path(
             path_edges.append((row["from"], row["to"]))
             path_edge_labels[(row["from"], row["to"])] = row.get("source", "")
 
-    path_set = set(path_nodes)
     path_edge_set = set(path_edges)
 
-    # focus=True: layout computed on path subgraph only (stronger than prune)
-    draw_graph = graph
-    if focus and path_nodes:
+    # prune/focus both restrict layout to the path subgraph.
+    if path_nodes and (focus or prune):
         path_idx = [
             graph.vs.find(name=n).index
             for n in path_nodes
             if n in graph.vs["name"]
         ]
         draw_graph = graph.induced_subgraph(path_idx)
+    else:
+        draw_graph = graph
 
     # Fruchterman-Reingold layout — equivalent to R ariadne's "stress" layout
     layout = draw_graph.layout("fr")
@@ -107,13 +107,11 @@ def plot_path(
     # cell's return value via Jupyter's own repr mechanism.
     fig, ax = plt.subplots(figsize=figsize)
 
-    # ── Edges (plain lines, not arrows — matches R's geom_edge_link) ──────────
+    # ── Edges ─────────────────────────────────────────────────────────────────
     for u, v, src in all_edges_raw:
         if u not in pos or v not in pos:
             continue
-        is_path_edge = (u, v) in path_edge_set
-        if prune and not is_path_edge:
-            continue
+        is_path_edge = (u, v) in path_edge_set or (v, u) in path_edge_set
         color = _C_EDGE_PATH if is_path_edge else _C_EDGE_BG
         lw    = 2.0 if is_path_edge else 1.0
         x0, y0 = pos[u]
@@ -134,7 +132,7 @@ def plot_path(
             )
 
     # ── Nodes ─────────────────────────────────────────────────────────────────
-    draw_names = [n for n in all_names if (not prune or n in path_set)]
+    draw_names = list(all_names)
     if draw_names:
         ax.scatter(
             [pos[n][0] for n in draw_names],
@@ -143,15 +141,15 @@ def plot_path(
         )
 
     # ── Labels ────────────────────────────────────────────────────────────────
-    ys_all = [pos[n][1] for n in all_names]
-    y_span = (max(ys_all) - min(ys_all)) if len(ys_all) > 1 else 1.0
+    ys_drawn = [pos[n][1] for n in draw_names] if draw_names else [0.0]
+    y_span = (max(ys_drawn) - min(ys_drawn)) if len(ys_drawn) > 1 else 1.0
     offset = y_span * 0.06
 
     for name in draw_names:
         x, y = pos[name]
         ax.text(
             x, y - offset, name,
-            fontsize=8, ha="center", va="top", color="#333333",
+            fontsize=9, ha="center", va="top", color="#333333",
             zorder=5,
             bbox={"boxstyle": "round,pad=0.1", "fc": "white", "ec": "none", "alpha": 0.7},
         )
@@ -160,5 +158,5 @@ def plot_path(
     ax.set_title(title, fontsize=12, fontweight="bold", pad=10)
     ax.axis("off")
     fig.tight_layout()
-    plt.show()
+    plt.close(fig)
     return fig

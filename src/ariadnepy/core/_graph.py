@@ -17,8 +17,8 @@ from ariadnepy.exceptions import AriadneError
 
 
 def _combine_graphs(graphs: list[tuple[str, ig.Graph]]) -> ig.Graph:
-    """Merge a list of (source_name, graph) pairs into one directed igraph Graph."""
-    combined = ig.Graph(directed=True)
+    """Merge a list of (source_name, graph) pairs into one undirected igraph Graph."""
+    combined = ig.Graph(directed=False)
 
     # Track vertex names already added
     name_to_idx: dict[str, int] = {}
@@ -62,7 +62,7 @@ def ariadne(
     """Build the ariadne resource graph.
 
     Downloads GML files from Zenodo (or uses the local cache) and merges them
-    into a single directed igraph Graph where vertices are biological feature
+    into a single undirected igraph Graph where vertices are biological feature
     types and edges represent mappings between them.
 
     Parameters
