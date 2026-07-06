@@ -86,6 +86,15 @@ def add_resource(
         df = df.iloc[:, :2]
     from_col, to_col = df.columns[0], df.columns[1]
 
+    # Validate that at least one feature is already in the graph (mirrors R's addResource check).
+    existing = set(graph.vs["name"]) if graph.vcount() > 0 else set()
+    new_vars = {col for col in (from_col, to_col) if col not in existing}
+    if len(new_vars) == 2:
+        raise AriadneError(
+            f"At least one feature must already be in the graph. "
+            f"Neither {from_col!r} nor {to_col!r} was found."
+        )
+
     # Cache the linkmap as parquet
     cache_dir = init_cache()
     safe = "".join(c if c.isalnum() else "_" for c in str(file))[:80]
@@ -105,15 +114,23 @@ def add_resource(
     graph = graph.copy()
 
     # Add vertices if missing
-    existing = set(graph.vs["name"]) if graph.vcount() > 0 else set()
     for node in (from_col, to_col):
         if node not in existing:
             graph.add_vertex(name=node)
             existing.add(node)
 
-    # Add edge
+    # Check for duplicate edge (same node pair + same res_name) before adding.
     src_idx = graph.vs.find(name=from_col).index
     tgt_idx = graph.vs.find(name=to_col).index
+    if not force:
+        for e in graph.es:
+            pair = {graph.vs[e.source]["name"], graph.vs[e.target]["name"]}
+            if pair == {from_col, to_col} and e.attributes().get("source") == res_name:
+                raise AriadneError(
+                    f"A '{res_name}' edge between {from_col!r} and {to_col!r} already exists. "
+                    "Set force=True to overwrite it."
+                )
+
     graph.add_edge(src_idx, tgt_idx)
     for k, v in edge_attrs.items():
         graph.es[-1][k] = v
