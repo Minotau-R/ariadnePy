@@ -119,9 +119,18 @@ def add_resource(
             graph.add_vertex(name=node)
             existing.add(node)
 
-    # Add edge
+    # Check for duplicate edge (same node pair + same res_name) before adding.
     src_idx = graph.vs.find(name=from_col).index
     tgt_idx = graph.vs.find(name=to_col).index
+    if not force:
+        for e in graph.es:
+            pair = {graph.vs[e.source]["name"], graph.vs[e.target]["name"]}
+            if pair == {from_col, to_col} and e.attributes().get("source") == res_name:
+                raise AriadneError(
+                    f"A '{res_name}' edge between {from_col!r} and {to_col!r} already exists. "
+                    "Set force=True to overwrite it."
+                )
+
     graph.add_edge(src_idx, tgt_idx)
     for k, v in edge_attrs.items():
         graph.es[-1][k] = v
