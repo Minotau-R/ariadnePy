@@ -116,7 +116,9 @@ def plot_path(
     }
 
     if focus:
-        keep_edge_idx = [e.index for e, info in zip(graph.es, edges_info, strict=False) if info["alpha"]]
+        keep_edge_idx = [
+            e.index for e, info in zip(graph.es, edges_info, strict=False) if info["alpha"]
+        ]
         draw_graph = graph.subgraph_edges(keep_edge_idx, delete_vertices=True)
         draw_edges_info = [info for info in edges_info if info["alpha"]]
     else:
