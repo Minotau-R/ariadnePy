@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
 from ariadnepy.exceptions import AriadneDownloadError, AriadneError
+from ariadnepy.io._batching import get_batches
 
 try:
     import requests as _requests
@@ -27,13 +29,16 @@ def _query_tnrs(
     to: str,
     timeout: float,
     batch_size: int = 1000,
-    workers: int = 4,
+    workers: int | None = None,
+    factor: int = 3,
 ) -> list[str | None]:
     """Match taxonomy names via TNRS API, return OTT id (or other target) per name."""
     if _requests is None:
         raise AriadneDownloadError("'requests' is required for OTT queries.")
 
-    batches = [names[i : i + batch_size] for i in range(0, len(names), batch_size)]
+    ranges = get_batches(len(names), batch_size, workers, factor)
+    batches = [names[start:end] for start, end in ranges]
+    resolved_workers = workers if workers is not None else (os.cpu_count() or 1)
 
     def _run(batch: list[str]) -> list[str | None]:
         resp = _requests.post(
@@ -62,7 +67,7 @@ def _query_tnrs(
             out.append(val)
         return out
 
-    with ThreadPoolExecutor(max_workers=min(workers, len(batches))) as pool:
+    with ThreadPoolExecutor(max_workers=min(resolved_workers, len(batches))) as pool:
         nested = list(pool.map(_run, batches))
     return [item for batch in nested for item in batch]
 
@@ -106,7 +111,8 @@ def query_ott(
     init: list[str] | None,
     timeout: float = 1e6,
     batch_size: int = 1000,
-    workers: int = 4,
+    workers: int | None = None,
+    factor: int = 3,
 ) -> pd.DataFrame:
     """Fetch taxonomy mappings from the Open Tree of Life API.
 
@@ -126,7 +132,10 @@ def query_ott(
     batch_size:
         Number of names per TNRS batch (for taxname queries).
     workers:
-        Parallel workers for batched requests.
+        Parallel workers for batched requests. Auto-detected from CPU count
+        when None.
+    factor:
+        Number of jobs per worker, used to cap the batch count.
 
     Returns
     -------
@@ -142,9 +151,10 @@ def query_ott(
         raise AriadneError("'init' must be provided for OTT queries.")
 
     clean = _strip_rank_prefix(init)
+    resolved_workers = workers if workers is not None else (os.cpu_count() or 1)
 
     if from_ == "taxname":
-        values = _query_tnrs(clean, to, timeout, batch_size, workers)
+        values = _query_tnrs(clean, to, timeout, batch_size, workers, factor)
         rows = [
             (orig, val)
             for orig, val in zip(init, values, strict=False)
@@ -156,7 +166,7 @@ def query_ott(
         def _fetch(raw_id: str) -> str | None:
             return _query_taxon_info(raw_id, to, "ott_id", timeout)
 
-        with ThreadPoolExecutor(max_workers=min(workers, len(clean))) as pool:
+        with ThreadPoolExecutor(max_workers=min(resolved_workers, len(clean))) as pool:
             values = list(pool.map(_fetch, clean))
         rows = [(orig, val) for orig, val in zip(init, values, strict=False) if val is not None]
         df = pd.DataFrame(rows, columns=[from_, to])
@@ -165,7 +175,7 @@ def query_ott(
         def _fetch_ext(raw_id: str) -> str | None:
             return _query_taxon_info(f"{from_}:{raw_id}", to, "source_id", timeout)
 
-        with ThreadPoolExecutor(max_workers=min(workers, len(clean))) as pool:
+        with ThreadPoolExecutor(max_workers=min(resolved_workers, len(clean))) as pool:
             values = list(pool.map(_fetch_ext, clean))
         rows = [(orig, val) for orig, val in zip(init, values, strict=False) if val is not None]
         df = pd.DataFrame(rows, columns=[from_, to])

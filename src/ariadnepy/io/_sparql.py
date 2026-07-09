@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
 from ariadnepy.exceptions import AriadneDownloadError, AriadneError
+from ariadnepy.io._batching import get_batches
 
 try:
     import requests as _requests
@@ -173,8 +175,9 @@ def query_sparql(
     endpoint: str,
     init: list[str] | None = None,
     timeout: float = 1e6,
-    batch_size: int = 500,
-    workers: int = 4,
+    batch_size: int = 25000,
+    workers: int | None = None,
+    factor: int = 3,
 ) -> pd.DataFrame:
     """Run a SPARQL query against UniProt or Rhea and return a linkmap DataFrame.
 
@@ -193,7 +196,10 @@ def query_sparql(
     batch_size:
         Maximum number of IDs per SPARQL request.
     workers:
-        Number of parallel workers for batched requests.
+        Number of parallel workers for batched requests. Auto-detected from
+        CPU count when None.
+    factor:
+        Number of jobs per worker, used to cap the batch count.
 
     Returns
     -------
@@ -220,13 +226,15 @@ def query_sparql(
         return df
 
     # Split init into batches
-    batches = [init[i : i + batch_size] for i in range(0, len(init), batch_size)]
+    ranges = get_batches(len(init), batch_size, workers, factor)
+    batches = [init[start:end] for start, end in ranges]
+    resolved_workers = workers if workers is not None else (os.cpu_count() or 1)
 
     def _run_batch(batch: list[str]) -> pd.DataFrame:
         query = _build_query(from_, to, clause, batch, uniref_identity)
         return _send_sparql(query, endpoint, timeout)
 
-    with ThreadPoolExecutor(max_workers=min(workers, len(batches))) as pool:
+    with ThreadPoolExecutor(max_workers=min(resolved_workers, len(batches))) as pool:
         results = list(pool.map(_run_batch, batches))
 
     df = pd.concat(results, ignore_index=True)

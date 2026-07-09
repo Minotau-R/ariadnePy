@@ -4,11 +4,12 @@ import igraph as ig
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
-from ariadnepy.graph._weave import _draw_path, _parse_by
+from ariadnepy.graph._weave import _draw_path, _get_sorted_edge_key, _parse_by
 
 _C_NODE      = "#FF8C00"   # darkorange — matches R ariadne
 _C_EDGE_PATH = "#E74C3C"   # red
 _C_EDGE_BG   = "#CCCCCC"   # grey80
+_FADE_ALPHA  = 0.15        # opacity for edges/nodes faded out by prune/res_name
 
 
 def plot_path(
@@ -39,13 +40,18 @@ def plot_path(
     exclude : list of str, optional
         Nodes the path must avoid.
     res_name : list of str, optional
-        Restrict path edges to these resource names.
+        Resource names to highlight. With ``by`` set, restricts path-finding
+        to these resources; with ``by=None``, fades every edge/node not
+        belonging to these resources across the whole graph (R's
+        ``plotPath(graph, res_name=["KEGG", "WoL"])`` usage).
     prune : bool
-        If True, show only path nodes and edges.
-        Equivalent to R's ``prune=TRUE``.
+        If True, fade every edge/node not on the chosen path (requires
+        ``by``). Equivalent to R's ``prune=TRUE``.
     focus : bool
-        If True, compute layout on path subgraph only (removes non-path nodes
-        from the canvas entirely). Equivalent to R's ``focus=TRUE``.
+        If True, drop every faded (non-highlighted) edge/node from the plot
+        entirely, instead of just fading them. Equivalent to R's
+        ``focus=TRUE``. Has no effect unless ``prune`` or ``res_name`` is
+        also active, since otherwise nothing is faded to begin with.
     figsize : tuple
         Matplotlib figure size ``(width, height)`` in inches.
 
@@ -55,53 +61,74 @@ def plot_path(
 
     Examples
     --------
-    >>> fig = plot_path(graph, "ec ~ ko", k=3)             # full graph, path highlighted
-    >>> fig = plot_path(graph, "ec ~ ko", k=3, prune=True) # only path shown
-    >>> fig = plot_path(graph)                              # full resource graph
+    >>> fig = plot_path(graph, "ec ~ ko", k=3)               # full graph, path highlighted
+    >>> fig = plot_path(graph, "ec ~ ko", k=3, prune=True)   # non-path faded
+    >>> fig = plot_path(graph, "ec ~ ko", k=3, focus=True)   # only path shown
+    >>> fig = plot_path(graph, res_name=["KEGG", "WoL"])     # resource highlighted
+    >>> fig = plot_path(graph)                                # full resource graph
     >>> fig.savefig("path.png")
     """
+    if not isinstance(prune, bool):
+        raise ValueError("'prune' must be True or False.")
+    if not isinstance(focus, bool):
+        raise ValueError("'focus' must be True or False.")
     if prune and by is None:
         raise ValueError("'prune' requires 'by' to be specified.")
 
-    path_nodes: list[str] = []
-    path_edges: list[tuple] = []
-    path_edge_labels: dict = {}
+    has_source_attr = "source" in graph.edge_attributes()
+    edges_info = []
+    for e in graph.es:
+        u = graph.vs[e.source]["name"]
+        v = graph.vs[e.target]["name"]
+        src = e["source"] if has_source_attr else ""
+        edges_info.append({"u": u, "v": v, "source": src})
 
+    path_edge_keys: set[str] = set()
     if by is not None:
         from_, to = _parse_by(by)
         path_df = _draw_path(graph, from_, to, k, include, exclude, res_name)
-        path_nodes = [path_df.iloc[0]["from"]] + list(path_df["to"])
         for _, row in path_df.iterrows():
-            path_edges.append((row["from"], row["to"]))
-            path_edge_labels[(row["from"], row["to"])] = row.get("source", "")
+            path_edge_keys.add(
+                _get_sorted_edge_key(row["from"], row["to"], row.get("source", ""))
+            )
 
-    # Use frozensets so edge lookup is direction-agnostic, matching R's sort(c(from,to)) approach.
-    path_edge_set = {frozenset(e) for e in path_edges}
+    for info in edges_info:
+        info["mark"] = _get_sorted_edge_key(info["u"], info["v"], info["source"]) in path_edge_keys
 
-    # prune/focus both restrict layout to the path subgraph.
-    if path_nodes and (focus or prune):
-        path_idx = [
-            graph.vs.find(name=n).index
-            for n in path_nodes
-            if n in graph.vs["name"]
+    # alpha marks what's highlighted vs faded; mark (above) marks what's coloured red.
+    # These are independent axes, same as R's plotPath.
+    if prune:
+        for info in edges_info:
+            info["alpha"] = info["mark"]
+    elif res_name is not None:
+        for info in edges_info:
+            info["alpha"] = info["source"] in res_name
+    else:
+        for info in edges_info:
+            info["alpha"] = True
+
+    connected_alpha_nodes = {
+        n for info in edges_info if info["alpha"] for n in (info["u"], info["v"])
+    }
+    node_alpha = {
+        name: (name in connected_alpha_nodes) if (prune or res_name is not None) else True
+        for name in graph.vs["name"]
+    }
+
+    if focus:
+        keep_edge_idx = [
+            e.index for e, info in zip(graph.es, edges_info, strict=False) if info["alpha"]
         ]
-        draw_graph = graph.induced_subgraph(path_idx)
+        draw_graph = graph.subgraph_edges(keep_edge_idx, delete_vertices=True)
+        draw_edges_info = [info for info in edges_info if info["alpha"]]
     else:
         draw_graph = graph
+        draw_edges_info = edges_info
 
     # Kamada-Kawai layout — closest available equivalent to R ariadne's "stress" layout
     layout = draw_graph.layout("kk")
     all_names = draw_graph.vs["name"]
     pos = {name: tuple(layout[i]) for i, name in enumerate(all_names)}
-
-    all_edges_raw = [
-        (
-            draw_graph.vs[e.source]["name"],
-            draw_graph.vs[e.target]["name"],
-            e["source"] if "source" in draw_graph.edge_attributes() else "",
-        )
-        for e in draw_graph.es
-    ]
 
     # plt.close(fig) before returning removes it from pyplot's display queue,
     # preventing Jupyter from rendering it twice while still showing it as the
@@ -109,19 +136,20 @@ def plot_path(
     fig, ax = plt.subplots(figsize=figsize)
 
     # ── Edges ─────────────────────────────────────────────────────────────────
-    for u, v, src in all_edges_raw:
+    for info in draw_edges_info:
+        u, v, src = info["u"], info["v"], info["source"]
         if u not in pos or v not in pos:
             continue
-        is_path_edge = frozenset((u, v)) in path_edge_set
-        color = _C_EDGE_PATH if is_path_edge else _C_EDGE_BG
-        lw    = 2.0 if is_path_edge else 1.0
+        color = _C_EDGE_PATH if info["mark"] else _C_EDGE_BG
+        lw = 2.0 if info["mark"] else 1.0
+        line_alpha = 1.0 if info["alpha"] else _FADE_ALPHA
         x0, y0 = pos[u]
         x1, y1 = pos[v]
         ax.plot(
             [x0, x1], [y0, y1],
-            color=color, lw=lw, zorder=1, solid_capstyle="round",
+            color=color, lw=lw, alpha=line_alpha, zorder=1, solid_capstyle="round",
         )
-        if is_path_edge and src:
+        if info["mark"] and src:
             ax.text(
                 (x0 + x1) / 2, (y0 + y1) / 2, src,
                 fontsize=8, ha="center", va="center",
@@ -133,7 +161,7 @@ def plot_path(
             )
 
     # ── Nodes ─────────────────────────────────────────────────────────────────
-    draw_names = list(all_names)
+    draw_names = [n for n in all_names if node_alpha.get(n, True)]
     if draw_names:
         ax.scatter(
             [pos[n][0] for n in draw_names],

@@ -63,6 +63,42 @@ def _get_edge_key(from_: str, to: str) -> str:
     return f"{from_}--{to}"
 
 
+def _get_sorted_edge_key(from_: str, to: str, source: str) -> str:
+    """Direction-agnostic edge key, matching R's ``.get_edge_keys``."""
+    return "_".join([*sorted([str(from_), str(to)]), str(source)])
+
+
+def _graph_from_path_df(path_df: pd.DataFrame) -> ig.Graph:
+    """Rebuild the minimal igraph subgraph covering exactly the steps in path_df.
+
+    Mirrors R's ``.graph_from_path_df``, used by the ``weavePath``/
+    ``weaveComplex`` data.frame methods (e.g. for the bundled ``pathMeta``
+    example, or output from ``draw_path()``).
+    """
+    if "version" in path_df.columns:
+        res_df = path_df[["source", "version"]].drop_duplicates().dropna()
+        versions: dict[str, str] | None = dict(
+            zip(res_df["source"], res_df["version"], strict=False)
+        )
+    else:
+        versions = None
+
+    from ariadnepy.core._graph import ariadne
+    graph = ariadne(versions=versions)
+
+    _, edge_df = _get_graph_dataframes(graph)
+    graph_keys = [
+        _get_sorted_edge_key(r["from"], r["to"], r.get("source", ""))
+        for _, r in edge_df.iterrows()
+    ]
+    path_keys = {
+        _get_sorted_edge_key(r["from"], r["to"], r.get("source", ""))
+        for _, r in path_df.iterrows()
+    }
+    keep_idx = [i for i, key in enumerate(graph_keys) if key in path_keys]
+    return graph.subgraph_edges(keep_idx, delete_vertices=True)
+
+
 def _generic2specific(
     path_df: pd.DataFrame, node_df: pd.DataFrame, col: str
 ) -> list[str]:
@@ -326,7 +362,10 @@ _SPARQL_ENDPOINTS = {
 
 
 def _fetch_sparql_edge(
-    step: pd.Series, init: list[str] | None, timeout: float
+    step: pd.Series,
+    init: list[str] | None,
+    timeout: float,
+    batch_kwargs: dict | None = None,
 ) -> pd.DataFrame:
     """Fetch one SPARQL edge, delegating to io._sparql when available."""
     try:
@@ -337,6 +376,7 @@ def _fetch_sparql_edge(
             endpoint=step["source"],
             init=init,
             timeout=timeout,
+            **(batch_kwargs or {}),
         )
     except (ImportError, AttributeError):
         pass
@@ -383,7 +423,10 @@ _OTT_TAXON_INFO = "https://api.opentreeoflife.org/v3/taxonomy/taxon_info"
 
 
 def _fetch_ott_edge(
-    step: pd.Series, init: list[str] | None, timeout: float
+    step: pd.Series,
+    init: list[str] | None,
+    timeout: float,
+    batch_kwargs: dict | None = None,
 ) -> pd.DataFrame:
     """Fetch OTT taxonomy mappings, delegating to io._ott when available."""
     try:
@@ -393,6 +436,7 @@ def _fetch_ott_edge(
             to=step["specTo"],
             init=init,
             timeout=timeout,
+            **(batch_kwargs or {}),
         )
     except (ImportError, AttributeError):
         pass
@@ -478,7 +522,10 @@ def _fetch_file_edge(
 # ── Edge dispatcher ───────────────────────────────────────────────────────────
 
 def _fetch_edge(
-    step: pd.Series, init: list[str] | None, timeout: float
+    step: pd.Series,
+    init: list[str] | None,
+    timeout: float,
+    batch_kwargs: dict | None = None,
 ) -> pd.DataFrame:
     """Route one path step to the correct backend and return a linkmap."""
     source = step["source"]
@@ -492,10 +539,10 @@ def _fetch_edge(
     elif source == "OTT":
         if not is_init:
             raise AriadneError("'init' must be provided for OTT queries.")
-        df = _fetch_ott_edge(step, init, timeout)
+        df = _fetch_ott_edge(step, init, timeout, batch_kwargs)
 
     elif source in ("Rhea", "UniProt"):
-        df = _fetch_sparql_edge(step, init, timeout)
+        df = _fetch_sparql_edge(step, init, timeout, batch_kwargs)
         if step.get("specTo") == "BioCyc":
             key = re.sub(r"_.+$", "", step["initTo"])
             df = df[
@@ -773,6 +820,7 @@ def _build_path_mf(
     prune_last: bool,
     verbose: bool,
     timeout: float,
+    batch_kwargs: dict | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Build the ordered chain of linkmaps for the path from_ → to."""
     if not isinstance(timeout, (int, float)) or timeout <= 0:
@@ -807,7 +855,7 @@ def _build_path_mf(
     for i, (_, step) in enumerate(path_df.iterrows()):
         if verbose:
             print(f"  {step['initFrom']} -({step['source']})-> {step['initTo']}")
-        linkmap = _fetch_edge(step, init_list, timeout)
+        linkmap = _fetch_edge(step, init_list, timeout, batch_kwargs)
         key = f"{step['from']}2{step['to']}"
         linkmaps[key] = linkmap
         if prune_vec[i]:
@@ -821,8 +869,8 @@ def _build_path_mf(
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def weave_path(
-    graph: ig.Graph,
-    by: str,
+    graph: ig.Graph | pd.DataFrame,
+    by: str | None = None,
     k: int = 1,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
@@ -832,25 +880,36 @@ def weave_path(
     use_names: bool = True,
     verbose: bool = True,
     timeout: float = 1e6,
+    batch_size: int | None = None,
+    workers: int | None = None,
+    factor: int = 3,
 ) -> pd.DataFrame:
     """Build a linkmap by traversing the resource graph from origin to target.
 
     Equivalent to R's ``weavePath(graph, taxname ~ bugsig, init = tax_labs)``.
 
+    Accepts either an igraph resource graph (from ``ariadne()``) or a fixed
+    path DataFrame (from ``draw_path()``, or the bundled ``pathMeta`` example).
+    When ``graph`` is a DataFrame, the path is already determined by its rows,
+    so ``by``, ``k``, ``include``, ``exclude``, and ``res_name`` don't apply —
+    same restriction as R's ``data.frame`` method for ``weavePath``.
+
     Parameters
     ----------
     graph:
-        NetworkX MultiDiGraph returned by ``ariadne()``.
+        igraph resource graph returned by ``ariadne()``, or a path DataFrame
+        (columns ``from``, ``to``, ``source``, optionally ``version``).
     by:
         Path formula string, e.g. ``"taxname ~ bugsig"`` or ``"ko ~ ec"``.
+        Required when ``graph`` is an igraph; not accepted for a DataFrame.
     k:
-        Use the k-th shortest path (1 = shortest).
+        Use the k-th shortest path (1 = shortest). igraph input only.
     include:
-        Node names that the chosen path must pass through.
+        Node names that the chosen path must pass through. igraph input only.
     exclude:
-        Node names the chosen path must avoid.
+        Node names the chosen path must avoid. igraph input only.
     res_name:
-        Restrict graph edges to these resource names only.
+        Restrict graph edges to these resource names only. igraph input only.
     init:
         Seed IDs for the first step (list), or a 2-column DataFrame for
         stratified input (first column = strata, second = IDs).
@@ -862,6 +921,12 @@ def weave_path(
         Print step-by-step progress messages.
     timeout:
         HTTP request timeout in seconds.
+    batch_size:
+        Maximum IDs per SPARQL/OTT request. Backend-specific default when None.
+    workers:
+        Parallel workers for batched requests. Auto-detected when None.
+    factor:
+        Number of jobs per worker, used to cap the batch count.
 
     Returns
     -------
@@ -876,12 +941,33 @@ def weave_path(
     >>> tax2bugsig_via_taxid = weave_path(
     ...     graph, "taxname ~ bugsig", include=["taxid"], init=tax_labs
     ... )
+    >>> chebi2gmm = weave_path(pathmeta_df, init=[15377, 30616, 4167])
     """
+    if isinstance(graph, pd.DataFrame):
+        if (
+            by is not None or k != 1 or include is not None
+            or exclude is not None or res_name is not None
+        ):
+            raise AriadneError(
+                "'by', 'k', 'include', 'exclude', and 'res_name' are not "
+                "supported when 'graph' is a DataFrame — the path is already "
+                "fixed by its rows."
+            )
+        by = f"{graph['from'].iloc[0]} ~ {graph['to'].iloc[-1]}"
+        graph = _graph_from_path_df(graph)
+    elif by is None:
+        raise AriadneError("'by' must be provided when 'graph' is an igraph object.")
+
     from_, to = _parse_by(by)
+    batch_kwargs = {
+        key: val for key, val in {"batch_size": batch_size, "workers": workers}.items()
+        if val is not None
+    }
+    batch_kwargs["factor"] = factor
 
     linkmaps = _build_path_mf(
         graph, from_, to, k, include, exclude, res_name,
-        init, prune, prune, verbose, timeout,
+        init, prune, prune, verbose, timeout, batch_kwargs,
     )
     result = _weave_linkmaps(linkmaps, from_, to)
 
@@ -900,8 +986,8 @@ def weave_path(
 
 
 def weave_complex(
-    graph: ig.Graph,
-    by: str,
+    graph: ig.Graph | pd.DataFrame,
+    by: str | None = None,
     k: int = 1,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
@@ -912,6 +998,9 @@ def weave_complex(
     threshold: float | None = None,
     verbose: bool = True,
     timeout: float = 1e6,
+    batch_size: int | None = None,
+    workers: int | None = None,
+    factor: int = 3,
 ) -> pd.DataFrame:
     """Like ``weave_path`` but returns module coverage scores for complex modules.
 
@@ -921,10 +1010,20 @@ def weave_complex(
 
     Equivalent to R's ``weaveComplex(graph, kegg_disease ~ gmm, threshold=0.8)``.
 
+    Accepts either an igraph resource graph or a fixed path DataFrame, same
+    as ``weave_path`` — see its docstring for the DataFrame-input restrictions
+    on ``by``/``k``/``include``/``exclude``/``res_name``.
+
     Parameters
     ----------
     threshold:
         Only return rows where ``cov >= threshold``. Must be in (0, 1].
+    batch_size:
+        Maximum IDs per SPARQL/OTT request. Backend-specific default when None.
+    workers:
+        Parallel workers for batched requests. Auto-detected when None.
+    factor:
+        Number of jobs per worker, used to cap the batch count.
 
     Returns
     -------
@@ -940,7 +1039,27 @@ def weave_complex(
     if threshold is not None and not (0 < threshold <= 1):
         raise AriadneError("'threshold' must be a number between 0 and 1.")
 
+    if isinstance(graph, pd.DataFrame):
+        if (
+            by is not None or k != 1 or include is not None
+            or exclude is not None or res_name is not None
+        ):
+            raise AriadneError(
+                "'by', 'k', 'include', 'exclude', and 'res_name' are not "
+                "supported when 'graph' is a DataFrame — the path is already "
+                "fixed by its rows."
+            )
+        by = f"{graph['from'].iloc[0]} ~ {graph['to'].iloc[-1]}"
+        graph = _graph_from_path_df(graph)
+    elif by is None:
+        raise AriadneError("'by' must be provided when 'graph' is an igraph object.")
+
     from_, to = _parse_by(by)
+    batch_kwargs = {
+        key: val for key, val in {"batch_size": batch_size, "workers": workers}.items()
+        if val is not None
+    }
+    batch_kwargs["factor"] = factor
     complex_modules = {"gbm", "gmm"}
 
     _, edge_df = _get_graph_dataframes(graph)
@@ -962,7 +1081,7 @@ def weave_complex(
     inner_from, inner_to = _parse_by(inner_by)
     linkmaps = _build_path_mf(
         graph, inner_from, inner_to, k, include, exclude, res_name,
-        init, prune, True, verbose, timeout,
+        init, prune, True, verbose, timeout, batch_kwargs,
     )
 
     if to in complex_modules:

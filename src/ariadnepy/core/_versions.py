@@ -171,6 +171,9 @@ def list_resource_versions(default: bool = False) -> pd.DataFrame:
     >>> list_resource_versions()
     >>> list_resource_versions(default=True)
     """
+    if not isinstance(default, bool):
+        raise AriadneVersionError("'default' must be True or False.")
+
     metadata = load_version_metadata()
     if default:
         metadata = metadata[metadata["default"]].copy()
