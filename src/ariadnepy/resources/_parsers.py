@@ -36,14 +36,24 @@ def process_one2many(
     path: str | Path,
     from_col: str,
     to_col: str,
+    key_col: int = 0,
     key_fn: Callable[[str], str] | None = None,
     val_fn: Callable[[str], str] | None = None,
     skiprows: int = 0,
     val_cols: slice | list[int] | None = None,
 ) -> pd.DataFrame:
-    """Parse a TSV where the first column maps to multiple values in the rest.
+    """Parse a TSV where one column maps to multiple values in the rest.
 
     Used for: ChocoPhlAn, WoL, BugSigDB.
+
+    Parameters
+    ----------
+    key_col:
+        Index of the column holding the "one" side of the mapping.
+        (R equivalent: ``key.col``.)
+    val_cols:
+        Indices/slice of columns holding the "many" side. Defaults to every
+        column except ``key_col``. (R equivalent: ``val.cols``.)
     """
     path = Path(path)
     rows = []
@@ -57,11 +67,11 @@ def process_one2many(
         if not line:
             continue
         parts = line.split("\t")
-        if len(parts) < 2:
+        if len(parts) < 2 or key_col >= len(parts):
             continue
-        key = parts[0]
+        key = parts[key_col]
         if val_cols is None:
-            selection = parts[1:]
+            selection = [p for i, p in enumerate(parts) if i != key_col]
         elif isinstance(val_cols, slice):
             selection = parts[val_cols]
         else:

@@ -1,0 +1,5 @@
+from,to,source,version,url
+chebi,rhea,Rhea,latest,
+rhea,ec,Rhea,latest,
+ec,ko,KEGG,latest,
+ko,gmm,GM,v1,https://github.com/omixer/omixer-rpmR/raw/refs/heads/main/inst/extdata/GMMs.v1.07.txt

@@ -11,6 +11,8 @@ import pytest
 from ariadnepy.exceptions import AriadneError
 from ariadnepy.graph._weave import (
     _draw_path,
+    _get_sorted_edge_key,
+    _graph_from_path_df,
     _map_complex_modules,
     _parse_by,
     _process_complex_modules,
@@ -346,6 +348,92 @@ def test_weave_path_init_filters_rows():
     with patch("ariadnepy.graph._weave._fetch_edge", side_effect=_mock_fetch):
         result = weave_path(g, "ko ~ ec", init=["K00001"], use_names=False, verbose=False)
     assert set(result["ko"]) == {"K00001"}
+
+
+# ── weave_path / weave_complex data.frame method ────────────────────────────
+# R: weavePath(pathMeta, init=...) — no by/k/include/exclude/res.name slot.
+
+_PATH_META = pd.DataFrame({
+    "from": ["ko"],
+    "to": ["ec"],
+    "source": ["FileDB"],
+})
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"by": "ko ~ ec"},
+    {"k": 2},
+    {"include": ["x"]},
+    {"exclude": ["x"]},
+    {"res_name": ["FileDB"]},
+])
+def test_weave_path_dataframe_input_rejects_search_params(kwargs):
+    with pytest.raises(AriadneError, match="not supported"):
+        weave_path(_PATH_META, verbose=False, **kwargs)
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"by": "ko ~ ec"},
+    {"k": 2},
+    {"include": ["x"]},
+    {"exclude": ["x"]},
+    {"res_name": ["FileDB"]},
+])
+def test_weave_complex_dataframe_input_rejects_search_params(kwargs):
+    with pytest.raises(AriadneError, match="not supported"):
+        weave_complex(_PATH_META, verbose=False, **kwargs)
+
+
+def test_weave_path_igraph_input_requires_by():
+    g = _file_graph()
+    with pytest.raises(AriadneError, match="'by' must be provided"):
+        weave_path(g, verbose=False)
+
+
+def test_weave_complex_igraph_input_requires_by(gmm_graph):
+    with pytest.raises(AriadneError, match="'by' must be provided"):
+        weave_complex(gmm_graph, verbose=False)
+
+
+def test_weave_path_dataframe_input_derives_by_and_runs():
+    """R: chebi2gmm <- weavePath(pathMeta, init=c(15377, 30616, 4167))"""
+    g = _file_graph()
+    with (
+        patch("ariadnepy.core._graph.ariadne", return_value=g),
+        patch("ariadnepy.graph._weave._fetch_edge", return_value=_MOCK_LM_KO_EC),
+    ):
+        result = weave_path(_PATH_META, use_names=False, verbose=False)
+    assert list(result.columns) == ["ko", "ec"]
+
+
+def test_get_sorted_edge_key_is_direction_agnostic():
+    assert _get_sorted_edge_key("a", "b", "DB1") == _get_sorted_edge_key("b", "a", "DB1")
+
+
+def test_get_sorted_edge_key_distinguishes_source():
+    assert _get_sorted_edge_key("a", "b", "DB1") != _get_sorted_edge_key("a", "b", "DB2")
+
+
+def test_graph_from_path_df_keeps_only_matching_edges():
+    full_graph = _ig_build(
+        ["ko", "ec", "other"],
+        [("ko", "ec", {"source": "FileDB", "url": "dummy"}),
+         ("ko", "other", {"source": "FileDB", "url": "dummy"})],
+    )
+    with patch("ariadnepy.core._graph.ariadne", return_value=full_graph):
+        sub = _graph_from_path_df(_PATH_META)
+    assert set(sub.vs["name"]) == {"ko", "ec"}
+    assert sub.ecount() == 1
+
+
+def test_graph_from_path_df_derives_versions_from_version_column():
+    path_df = pd.DataFrame({
+        "from": ["ko"], "to": ["ec"], "source": ["FileDB"], "version": ["v1"],
+    })
+    g = _file_graph()
+    with patch("ariadnepy.core._graph.ariadne", return_value=g) as mock_ariadne:
+        _graph_from_path_df(path_df)
+    mock_ariadne.assert_called_once_with(versions={"FileDB": "v1"})
 
 
 # ── weave_complex ─────────────────────────────────────────────────────────────
