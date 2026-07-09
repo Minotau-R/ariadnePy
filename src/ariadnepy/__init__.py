@@ -17,7 +17,7 @@ from ariadnepy.graph._names import link_names
 from ariadnepy.graph._weave import draw_path, search_path, weave_complex, weave_path
 from ariadnepy.plot._custom import add_resource
 from ariadnepy.plot._draw import plot_path
-from ariadnepy.resources._data import load_butyrate
+from ariadnepy.resources._data import load_butyrate, load_pathmeta
 
 __all__ = [
     "__version__",
@@ -42,6 +42,7 @@ __all__ = [
     "add_resource",
     # data
     "load_butyrate",
+    "load_pathmeta",
     # anndata integration
     "add_modules",
     "get_modules",
