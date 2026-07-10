@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ariadnepy"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python interface to the ariadne multi-omic knowledge graph"
 readme = "README.md"
 license = { text = "Artistic-2.0" }
 requires-python = ">=3.10"
 authors = [
-    { name = "Aditi", email = "abhiyan@analyticsandsociety.com" },
+    { name = "Aditi", email = "aa11972@nyu.edu" },
 ]
 keywords = ["bioinformatics", "multi-omics", "graph", "knowledge-graph", "microbiome"]
 classifiers = [
