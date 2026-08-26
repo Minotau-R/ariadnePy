@@ -303,6 +303,12 @@ def _strip_iri(ids: Sequence[str], name: str) -> list[str]:
 
 _KEGG_REST = "https://rest.kegg.jp"
 _KEGG_EXT_DBS = {"chebi", "geneid", "proteinid", "pubchem", "uniprotkb"}
+# KEGG's /link endpoint rejects "ec" as a target db (HTTP 400) when the
+# source is a whole database rather than specific entries, e.g.
+# /link/ec/ko fails but /link/enzyme/ko succeeds. "enzyme" is accepted in
+# both positions and returned rows are still labelled "ec:...", so this
+# swap is URL-only and doesn't affect downstream parsing.
+_KEGG_LINK_TARGET_ALIASES = {"ec": "enzyme"}
 
 
 def _fetch_kegg_edge(
@@ -333,7 +339,8 @@ def _fetch_kegg_edge(
     for chunk_start in range(0, max(1, len(query_targets)), 100):
         chunk = query_targets[chunk_start : chunk_start + 100]
         query = "+".join(chunk) if len(chunk) > 1 else chunk[0]
-        url = f"{_KEGG_REST}/{endpoint}/{to}/{query}"
+        url_target = _KEGG_LINK_TARGET_ALIASES.get(to, to)
+        url = f"{_KEGG_REST}/{endpoint}/{url_target}/{query}"
         resp = _requests.get(url, timeout=30)
         resp.raise_for_status()
         for line in resp.text.strip().splitlines():

@@ -11,6 +11,7 @@ import pytest
 from ariadnepy.exceptions import AriadneError
 from ariadnepy.graph._weave import (
     _draw_path,
+    _fetch_kegg_edge,
     _get_sorted_edge_key,
     _graph_from_path_df,
     _map_complex_modules,
@@ -587,3 +588,27 @@ def test_map_complex_missing_table_raises():
     """Missing required linkmap tables raises before scipy is touched."""
     with pytest.raises(AriadneError, match="Missing required"):
         _map_complex_modules({"origin2feature": pd.DataFrame()}, "origin", "feature")
+
+
+# ── _fetch_kegg_edge — target db aliasing ─────────────────────────────────────
+
+
+def test_fetch_kegg_edge_aliases_ec_target_to_enzyme():
+    """KEGG's /link endpoint 400s on 'ec' as a target db for whole-db linking
+    (e.g. /link/ec/ko) but accepts 'enzyme' — same rows, both labelled 'ec:'.
+    The request URL must use the 'enzyme' alias whenever the target is 'ec'.
+    """
+    step = pd.Series({
+        "specFrom": "ko", "specTo": "ec",
+        "initFrom": "ko", "initTo": "ec", "source": "KEGG",
+    })
+    mock_resp = type("R", (), {
+        "text": "ko:K00001\tec:1.1.1.1",
+        "raise_for_status": lambda self: None,
+    })()
+    with patch("ariadnepy.graph._weave._requests.get", return_value=mock_resp) as mock_get:
+        df = _fetch_kegg_edge(step, None)
+    called_url = mock_get.call_args[0][0]
+    assert called_url.endswith("/link/enzyme/ko")
+    assert "/link/ec/" not in called_url
+    assert list(df.columns) == ["ko", "ec"]
