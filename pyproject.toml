@@ -4,10 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ariadnepy"
-version = "0.2.0"
+version = "0.2.1"
 description = "Python interface to the ariadne multi-omic knowledge graph"
 readme = "README.md"
 license = { text = "Artistic-2.0" }
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
     { name = "Aditi", email = "aa11972@nyu.edu" },
@@ -46,8 +47,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Minotau-R/ariadne"
-"Bug Tracker" = "https://github.com/Minotau-R/ariadne/issues"
+Homepage = "https://github.com/Minotau-R/ariadnePy"
+"Bug Tracker" = "https://github.com/Minotau-R/ariadnePy/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ariadnepy"]
