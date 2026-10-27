@@ -1,4 +1,4 @@
-# ariadnePy: a Python interface to the ariadne database network <img src="https://raw.githubusercontent.com/Minotau-R/ariadne/devel/inst/assets/ariadne_logo.png" align="right" width="120" />
+# ariadnePy: a Python interface to the ariadne database network <img src="https://raw.githubusercontent.com/Minotau-R/ariadne/devel/man/figures/ariadne_logo.png" align="right" width="120" />
 
 [![issues](https://img.shields.io/github/issues/Minotau-R/ariadnePy)](https://github.com/Minotau-R/ariadnePy/issues)
 [![pulls](https://img.shields.io/github/issues-pr/Minotau-R/ariadnePy)](https://github.com/Minotau-R/ariadnePy/pulls)
