@@ -1,8 +1,10 @@
 # ariadnePy: a Python interface to the ariadne database network <img src="https://raw.githubusercontent.com/Minotau-R/ariadne/devel/man/figures/ariadne_logo.png" align="right" width="120" />
 
+[![PyPI](https://img.shields.io/pypi/v/ariadnepy.svg?color=green)](https://pypi.org/project/ariadnePy)
+[![tests](https://github.com/Minotau-R/ariadnePy/actions/workflows/test.yml/badge.svg)](https://github.com/Minotau-R/ariadnePy/actions/workflows/test.yml)
 [![issues](https://img.shields.io/github/issues/Minotau-R/ariadnePy)](https://github.com/Minotau-R/ariadnePy/issues)
 [![pulls](https://img.shields.io/github/issues-pr/Minotau-R/ariadnePy)](https://github.com/Minotau-R/ariadnePy/pulls)
-[![tests](https://github.com/Minotau-R/ariadnePy/actions/workflows/test.yml/badge.svg)](https://github.com/Minotau-R/ariadnePy/actions/workflows/test.yml)
+![PyPI Downloads](https://img.shields.io/pypi/dm/ariadnePy)
 
 ariadnePy brings the biological database integration and graph-theory tools of the R package [ariadne](https://github.com/Minotau-R/ariadne) to Python users. It downloads biological resources (Gene Ontology, KEGG, UniProt, BugSigDB, ChocoPhlAn, and more) from [Zenodo](https://zenodo.org) and assembles them into a single [igraph](https://python.igraph.org) `Graph` that can be queried, filtered, and visualised directly in Python.
 
